@@ -66,9 +66,9 @@ export function createStudentView() {
           add('사용자 ID: ' + (data?.user?.id ?? '확인 불가'));
           add('현재 기기: ' + (data?.device?.label ?? '확인 불가'));
           add('기기 ID: ' + (data?.device?.id ?? '확인 불가'));
-          add('기기 상태: ' + (deviceStatus[data?.device?.status] ?? '확인 불가'));
+          add('기기 상태: ' + (deviceStatus[data?.device?.status] ?? '확인 불가') + ' (' + (data?.device?.status ?? 'unknown') + ')');
           add('세션 ID: ' + (data?.session?.id ?? '확인 불가'));
-          add('세션 상태: ' + (sessionStatus[data?.session?.status] ?? '확인 불가'));
+          add('세션 상태: ' + (sessionStatus[data?.session?.status] ?? '확인 불가') + ' (' + (data?.session?.status ?? 'unknown') + ')');
         } else if (name === '등록 기기 목록') {
           if (!Array.isArray(state.data) || state.data.length === 0) {
             add('등록 기기 없음');
@@ -76,7 +76,7 @@ export function createStudentView() {
             for (const device of state.data) {
               add((device.label ?? '이름 없음') + ' (' +
                 (device.id ?? 'ID 없음') + '): ' +
-                (deviceStatus[device.status] ?? '확인 불가'));
+                (deviceStatus[device.status] ?? '확인 불가') + ' (' + (device.status ?? 'unknown') + ')');
             }
           }
         } else {
@@ -85,7 +85,7 @@ export function createStudentView() {
           } else {
             for (const session of state.data) {
               add((session.id ?? 'ID 없음') + ': ' +
-                (sessionStatus[session.status] ?? '확인 불가'));
+                (sessionStatus[session.status] ?? '확인 불가') + ' (' + (session.status ?? 'unknown') + ')');
             }
           }
         }
