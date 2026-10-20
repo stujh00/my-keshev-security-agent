@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+*.bak
+*.pem
+*.key
+native.json
+sdp-host.json
+node_modules/
+/on
+/on
