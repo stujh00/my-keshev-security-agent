@@ -4,93 +4,128 @@ export function createStudentView() {
   return {
     renderIdentity({ me, devices, sessions } = {}) {
       const root = document.createElement('section');
-
-      const add = (text) => {
-        const p = document.createElement('p');
-        p.textContent = text;
-        root.appendChild(p);
-      };
+      root.setAttribute('aria-label', '사용자와 기기 및 세션 보안 상태');
 
       const deviceStatus = {
         compliant: '보안 기준 충족',
         noncompliant: '보안 기준 미충족',
         unknown: '확인 불가'
       };
-
       const sessionStatus = {
         active: '활성',
         expired: '만료',
         revoked: '철회됨',
         unknown: '확인 불가'
       };
-
       const modeLabel = {
-        demo: '예제 자료',
+        demo: '예제 자료 · 실제 조회 아님',
         disconnected: '연결 없음',
-        unknown: '확인 불가'
+        unknown: '연결 상태 확인 불가'
       };
+      const safe = value => value === null || value === undefined || value === '' ? '확인 불가' : String(value);
+      const appendText = (parent, tag, text) => {
+        const el = document.createElement(tag);
+        el.textContent = String(text);
+        parent.appendChild(el);
+        return el;
+      };
+      const card = (parent, label, value, note) => {
+        const item = document.createElement('article');
+        item.style.cssText = 'border:1px solid #a0aab580;border-radius:12px;padding:14px;min-width:0;background:rgba(125,145,165,.08)';
+        const name = appendText(item, 'div', label);
+        name.style.cssText = 'font-size:.85em;opacity:.8;margin-bottom:6px';
+        const main = appendText(item, 'strong', value);
+        main.style.cssText = 'display:block;font-size:1.12em;overflow-wrap:anywhere';
+        if (note) {
+          const detail = appendText(item, 'div', note);
+          detail.style.cssText = 'font-size:.8em;opacity:.8;margin-top:6px;overflow-wrap:anywhere';
+        }
+        parent.appendChild(item);
+      };
+      const grid = document.createElement('div');
+      grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:10px;margin:12px 0 18px';
+      appendText(root, 'h3', '보안 상태 요약');
+      appendText(root, 'p', '실제 API 응답, 예제 자료, 연결 실패 및 확인 불가를 구분해 표시합니다.');
+      root.appendChild(grid);
 
+      const meOk = me?.status === 'ok';
+      const devicesOk = devices?.status === 'ok' && Array.isArray(devices.data);
+      const sessionsOk = sessions?.status === 'ok' && Array.isArray(sessions.data);
+      const currentDevice = meOk ? me.data?.device : undefined;
+      const currentSession = meOk ? me.data?.session : undefined;
+      const modeNote = state => modeLabel[state?.mode] ?? '';
+      const stateNote = state => state?.status === 'loading' ? '불러오는 중'
+        : state?.status === 'error' ? '연결 실패'
+        : state?.status !== 'ok' ? '확인 불가' : '';
+      const valueOrStatus = (state, value) => state?.status === 'ok' ? safe(value) : stateNote(state);
+      const combinedNote = (state, more) => [modeNote(state), more].filter(Boolean).join(' · ');
+
+      card(grid, '사용자', valueOrStatus(me, me?.data?.user?.label), combinedNote(me, meOk ? '사용자 ID: ' + safe(me.data?.user?.id) : ''));
+      card(grid, '현재 기기', valueOrStatus(me, currentDevice ? (deviceStatus[currentDevice.status] ?? '확인 불가') : undefined),
+        combinedNote(me, meOk ? '기기: ' + safe(currentDevice?.label) : ''));
+      card(grid, '현재 세션', valueOrStatus(me, currentSession ? (sessionStatus[currentSession.status] ?? '확인 불가') : undefined),
+        combinedNote(me, meOk ? '세션 ID: ' + safe(currentSession?.id) : ''));
+      card(grid, '등록 기기', devicesOk ? devices.data.length + '대' : stateNote(devices) || '확인 불가',
+        combinedNote(devices, devicesOk && devices.data.length === 0 ? '조회 결과: 등록 기기 없음' : ''));
+
+      // 오류 원문은 별도 영역에서 한 번만 보여주며 카드에 중복 출력하지 않습니다.
+      const failures = [
+        ['사용자 및 현재 기기·세션', me],
+        ['등록 기기 목록', devices],
+        ['세션 목록', sessions]
+      ].filter(([, state]) => state?.status === 'error');
+      if (failures.length) {
+        const details = document.createElement('details');
+        details.style.cssText = 'margin:10px 0 18px;overflow-wrap:anywhere';
+        appendText(details, 'summary', '조회 오류 상세 (' + failures.length + '개 영역)');
+        const unique = new Map();
+        for (const [name, state] of failures) {
+          const message = safe(state.error?.message);
+          const names = unique.get(message) ?? [];
+          names.push(name);
+          unique.set(message, names);
+        }
+        for (const [message, names] of unique) {
+          appendText(details, 'p', names.join(' · ') + ': ' + message);
+        }
+        root.appendChild(details);
+      }
       const sections = [
         ['사용자 및 현재 기기·세션', me],
         ['등록 기기 목록', devices],
         ['세션 목록', sessions]
       ];
-
       for (const [name, state] of sections) {
-        const heading = document.createElement('h3');
-        heading.textContent = name;
-        root.appendChild(heading);
-
-        if (modeLabel[state?.mode]) {
-          add(modeLabel[state.mode]);
-        }
-
-        if (state?.status === 'loading') {
-          add('불러오는 중');
-          continue;
-        }
-
-        if (state?.status === 'error') {
-          add('연결 실패: ' + (state.error?.message ?? '확인 불가'));
-          continue;
-        }
-
-        if (state?.status !== 'ok') {
-          add('확인 불가');
-          continue;
-        }
-
+        appendText(root, 'h3', name);
+        if (modeNote(state)) appendText(root, 'p', modeNote(state));
+        if (state?.status === 'loading') { appendText(root, 'p', '불러오는 중'); continue; }
+        if (state?.status === 'error') { appendText(root, 'p', '연결 실패 · 위의 조회 오류 상세를 확인하세요.'); continue; }
+        if (state?.status !== 'ok') { appendText(root, 'p', '확인 불가'); continue; }
         if (name === '사용자 및 현재 기기·세션') {
           const data = state.data;
-          add('사용자: ' + (data?.user?.label ?? '확인 불가'));
-          add('사용자 ID: ' + (data?.user?.id ?? '확인 불가'));
-          add('현재 기기: ' + (data?.device?.label ?? '확인 불가'));
-          add('기기 ID: ' + (data?.device?.id ?? '확인 불가'));
-          add('기기 상태: ' + (deviceStatus[data?.device?.status] ?? '확인 불가') + ' (' + (data?.device?.status ?? 'unknown') + ')');
-          add('세션 ID: ' + (data?.session?.id ?? '확인 불가'));
-          add('세션 상태: ' + (sessionStatus[data?.session?.status] ?? '확인 불가') + ' (' + (data?.session?.status ?? 'unknown') + ')');
+          appendText(root, 'p', '사용자: ' + safe(data?.user?.label));
+          appendText(root, 'p', '사용자 ID: ' + safe(data?.user?.id));
+          appendText(root, 'p', '현재 기기: ' + safe(data?.device?.label));
+          appendText(root, 'p', '기기 ID: ' + safe(data?.device?.id));
+          appendText(root, 'p', '기기 상태: ' + (deviceStatus[data?.device?.status] ?? '확인 불가') + ' (' + safe(data?.device?.status) + ')');
+          appendText(root, 'p', '세션 ID: ' + safe(data?.session?.id));
+          appendText(root, 'p', '세션 상태: ' + (sessionStatus[data?.session?.status] ?? '확인 불가') + ' (' + safe(data?.session?.status) + ')');
         } else if (name === '등록 기기 목록') {
-          if (!Array.isArray(state.data) || state.data.length === 0) {
-            add('등록 기기 없음');
-          } else {
-            for (const device of state.data) {
-              add((device.label ?? '이름 없음') + ' (' +
-                (device.id ?? 'ID 없음') + '): ' +
-                (deviceStatus[device.status] ?? '확인 불가') + ' (' + (device.status ?? 'unknown') + ')');
-            }
+          if (!Array.isArray(state.data)) { appendText(root, 'p', '목록 형식 확인 불가'); }
+          else if (state.data.length === 0) { appendText(root, 'p', '등록 기기 없음'); }
+          else for (const device of state.data) {
+            appendText(root, 'p', safe(device?.label) + ' (' + safe(device?.id) + '): ' +
+              (deviceStatus[device?.status] ?? '확인 불가') + ' (' + safe(device?.status) + ')');
           }
         } else {
-          if (!Array.isArray(state.data) || state.data.length === 0) {
-            add('세션 없음');
-          } else {
-            for (const session of state.data) {
-              add((session.id ?? 'ID 없음') + ': ' +
-                (sessionStatus[session.status] ?? '확인 불가') + ' (' + (session.status ?? 'unknown') + ')');
-            }
+          if (!Array.isArray(state.data)) { appendText(root, 'p', '목록 형식 확인 불가'); }
+          else if (state.data.length === 0) { appendText(root, 'p', '세션 없음'); }
+          else for (const session of state.data) {
+            appendText(root, 'p', safe(session?.id) + ': ' +
+              (sessionStatus[session?.status] ?? '확인 불가') + ' (' + safe(session?.status) + ')');
           }
         }
       }
-
       return root;
     },
     renderDecision({ status, mode, data, error, appId } = {}) {
