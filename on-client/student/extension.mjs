@@ -873,6 +873,135 @@ export function createStudentView() {
       add('실행된 조치: 없음(executed=false)');
       return root;
     },
-    renderAction() { return '학생 구현 대기: 현재 사건·조치·실제 대상·사람 확인·ACK와 원천 효과·unknown을 구분하세요.'; },
+    renderAction({
+      status = 'idle', event = null, actionId = null,
+      target = null, receipt = null, observation = null,
+      message = null, confirmationExpiresAt = null, error = null
+    } = {}) {
+      const root = document.createElement('section');
+      const add = (value) => {
+        const p = document.createElement('p');
+        p.textContent = String(value);
+        root.appendChild(p);
+      };
+
+      const heading = document.createElement('h3');
+      heading.textContent = '보안 조치 요청 상태';
+      root.appendChild(heading);
+
+      const safeText = (value) => {
+        if (typeof value !== 'string' && typeof value !== 'number') {
+          return null;
+        }
+        const text = String(value);
+        if (text.length > 500 ||
+            /bearer\s+\S+|sk-[A-Za-z0-9_-]{8,}|api[_-]?key\s*[:=]/i.test(text)) {
+          return '[민감 정보 또는 과도한 내용으로 표시 제한]';
+        }
+        return text;
+      };
+
+      const field = (name, value) => {
+        if (value !== null && value !== undefined && value !== '') {
+          add(name + ': ' + (safeText(value) ?? '확인 불가'));
+        }
+      };
+
+      const statuses = {
+        idle: '아직 미실행(idle)',
+        loading: '조치 준비 또는 결과 조회 중(loading). 결과 미확인',
+        prepared: '준비됨·미실행(prepared). 사람 확인 전이며 집행되지 않았습니다.',
+        executing: '서버에 전달 중(executing). 결과와 효과는 아직 확인되지 않았습니다.',
+        pending: '서버 접수·처리 중(pending). ACK는 실행 효과 확인이 아닙니다.',
+        succeeded: '서버 응답 상태: succeeded. 실제 효과는 관측 결과를 확인해야 합니다.',
+        denied: '연동 시스템에서 거절(denied)',
+        failed: '연동 시스템 처리 실패(failed)',
+        unknown: '결과 불명(unknown). 성공이나 효과 없음으로 판단하지 마세요. 연동 시스템 결과만 재조회하세요.',
+        error: '요청 처리 오류(error)',
+        expired: '확인 기한 만료(expired). 조치를 다시 준비해야 합니다.'
+      };
+
+      add(statuses[status] ?? '알 수 없는 조치 상태: 확인 불가');
+
+      const evidence = Array.isArray(event?.evidence)
+        ? event.evidence : [];
+
+      field('현재 사건 ID', event?.id);
+
+      if (evidence.length > 0) {
+        add('현재 사건 근거 ID: ' +
+          evidence.map(item => safeText(item.id) ?? '확인 불가').join(', '));
+      }
+
+      field('조치 ID', actionId);
+      field('실제 대상 ID', target?.id);
+      field('대상 세대(generation)', target?.generation);
+      field('요청 ID(requestId)', receipt?.requestId);
+      field('접수 ID(receiptId)', receipt?.receiptId);
+      field('서버 결과 버전(version)', receipt?.version);
+      field('확인 기한', confirmationExpiresAt);
+
+      if (status === 'prepared') {
+        add('제공 화면에서 대상과 조치를 직접 확인해야 합니다.');
+        add('이 상태에서는 집행되지 않았습니다.');
+      }
+
+      if (status === 'executing' || status === 'pending') {
+        add('서버 전달 또는 접수 상태만으로 실제 조치 효과를 확정할 수 없습니다.');
+      }
+
+      const mismatch =
+        (receipt?.eventId != null && receipt.eventId !== event?.id) ||
+        (receipt?.actionId != null && receipt.actionId !== actionId);
+
+      if (mismatch) {
+        add('현재 사건 또는 조치와 서버 응답의 식별자가 일치하지 않습니다.');
+        add('이전 요청 결과를 현재 사건의 결과로 인정하지 않습니다.');
+        return root;
+      }
+
+      if (status === 'succeeded') {
+        if (observation?.effectApplied === true &&
+            observation?.observedAt &&
+            receipt?.receiptId) {
+          add('효과 확인(succeeded)');
+          field('관측 시각', observation.observedAt);
+          add('effectApplied: true');
+          field('효과 확인 접수 ID(receiptId)', receipt.receiptId);
+        } else {
+          add('결과 불명: 실제 효과를 확인할 수 없습니다.');
+          add('성공으로 판단하지 말고 연동 시스템 결과만 재조회하세요.');
+        }
+      }
+
+      if (status === 'unknown') {
+        add('조치 화면 취소는 이미 서버에 전달된 조치의 효과를 되돌리지 않습니다.');
+      }
+
+      if (status === 'denied' || status === 'failed') {
+        field('연동 시스템 메시지', message);
+      }
+
+      if (status === 'error') {
+        field('오류 코드', error?.code);
+        field('오류 메시지', error?.message);
+        add('요청이 처리되지 않았거나 처리 결과를 확인하지 못했습니다.');
+      }
+
+      if (status === 'idle' &&
+          Array.isArray(event?.supportedActions) &&
+          event.supportedActions.length === 0) {
+        add('연동 시스템이 지원하는 조치가 없어 집행할 수 없습니다(정상).');
+      }
+
+      if (event?.id && receipt?.requestId &&
+          !mismatch) {
+        root.setAttribute('data-student-action-event', String(event.id));
+        root.setAttribute('data-student-action-request', String(receipt.requestId));
+      }
+
+      add('실제 조치는 제공 화면과 서버가 처리합니다. 학생 화면은 상태만 표시합니다.');
+      return root;
+    },
   };
 }
