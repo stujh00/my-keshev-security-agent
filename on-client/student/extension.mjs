@@ -1,6 +1,7 @@
 // 이 파일은 학생이 같은 프로젝트에서 이어서 구현합니다.
 // 제공 UI를 받은 것만으로 단계 완료를 인정하지 않습니다.
 export function createStudentView({ onChange } = {}) {
+  // keshev-day4-ui-v1: presentation and file-import feedback only.
   const studentRefresh = onChange;
   // PC measurement files are user-selected; no automatic server or native access.
   let pcMeasurement = null;
@@ -40,23 +41,30 @@ export function createStudentView({ onChange } = {}) {
   const renderPcMeasurement = root => {
     const panel = document.createElement('section');
     panel.setAttribute('aria-label', '사용자가 선택한 PC 측정 파일');
-    panel.style.cssText = 'border:1px solid #a0aab580;border-radius:12px;padding:14px;margin:20px 0';
+    panel.style.cssText = 'border:1px solid #94a3b880;border-radius:14px;padding:18px;margin:20px 0;background:rgba(125,145,165,.045);min-width:0;overflow-wrap:anywhere';
     const line = (tag, content) => {
       const element = document.createElement(tag);
       element.textContent = content;
       panel.appendChild(element);
       return element;
     };
-    line('h3', '내 PC 상태 · 실측 JSON 불러오기');
-    line('p', '파일 선택 방식입니다. 자동 조회나 실시간 갱신이 아닙니다. 선택한 JSON은 서버에 업로드하지 않습니다.');
-    const label = line('label', 'Windows 측정 결과 JSON 선택: ');
+    line('h3', '내 PC 상태 · 측정 기록');
+    line('p', '1. PowerShell 측정 스크립트로 새 JSON을 만듭니다. 2. 아래에서 새 파일을 선택합니다. 자동 조회·실시간 갱신이 아니며, 선택한 JSON은 서버에 업로드하지 않습니다.');
+    const label = line('label', '새 PC 측정 JSON 파일 선택: ');
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json,application/json';
     label.appendChild(input);
+    const readStatus = document.createElement('p');
+    readStatus.setAttribute('role', 'status');
+    readStatus.setAttribute('aria-live', 'polite');
+    readStatus.textContent = '파일을 선택하면 형식과 측정 시각을 확인합니다.';
+    panel.appendChild(readStatus);
     input.addEventListener('change', async () => {
       const file = input.files?.[0];
       if (!file) return;
+      readStatus.textContent = '파일 읽는 중…';
+      input.disabled = true;
       try {
         if (file.size > 65536) throw new Error('파일이 64KB를 초과합니다.');
         const parsed = JSON.parse(await file.text());
@@ -64,13 +72,15 @@ export function createStudentView({ onChange } = {}) {
         pcMeasurementError = '';
       } catch (error) {
         pcMeasurement = null;
-        pcMeasurementError = '읽기 실패: ' + (error instanceof Error ? error.message : '확인 불가');
+        pcMeasurementError = '읽기 실패: ' + (error instanceof Error ? error.message : '확인 불가') + ' · 새 측정 파일을 만든 뒤 다시 선택하세요.';
       }
+      input.disabled = false;
+      readStatus.textContent = pcMeasurementError || '파일 검증 완료 · 화면을 갱신합니다.';
       if (typeof onChange === 'function') onChange();
     });
     if (pcMeasurementError) line('p', pcMeasurementError);
     if (!pcMeasurement) {
-      line('p', '확인 불가 · 아직 유효한 측정 파일을 선택하지 않았습니다.');
+      line('p', '확인 불가 · 아직 유효한 측정 파일을 선택하지 않았습니다. 새로 측정하고 위 버튼으로 JSON 파일을 선택하세요.');
       root.appendChild(panel);
       return;
     }
@@ -88,15 +98,15 @@ export function createStudentView({ onChange } = {}) {
       ['C: 디스크 여유 비율', pcMeasurement.diskC, 'freePercent', '%']
     ];
     const grid = document.createElement('div');
-    grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:10px';
+    grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:12px;margin-top:14px';
     for (const [name, item, field, unit] of values) {
       const card = document.createElement('article');
-      card.style.cssText = 'border:1px solid #a0aab580;border-radius:10px;padding:12px;min-width:0';
+      card.style.cssText = 'border:1px solid #94a3b880;border-radius:12px;padding:15px;min-width:0;background:rgba(125,145,165,.06);overflow-wrap:anywhere';
       const heading = document.createElement('div');
       heading.textContent = name;
       card.appendChild(heading);
       const strong = document.createElement('strong');
-      strong.style.cssText = 'display:block;margin-top:8px;font-size:1.2em';
+      strong.style.cssText = 'display:block;margin:10px 0;font-size:1.35em;line-height:1.4';
       strong.textContent = item.status === 'ok' ? item[field].toFixed(1) + ' ' + unit : '확인 불가';
       card.appendChild(strong);
       const note = document.createElement('small');
@@ -148,7 +158,7 @@ export function createStudentView({ onChange } = {}) {
   };
   const renderConnectionRecord = root => {
     const panel = document.createElement('section');
-    panel.style.cssText = 'border:1px solid #a0aab580;border-radius:12px;padding:14px;margin:12px 0 22px;overflow-wrap:anywhere';
+    panel.style.cssText = 'border:1px solid #94a3b880;border-radius:14px;padding:18px;margin:14px 0 22px;background:rgba(125,145,165,.045);min-width:0;overflow-wrap:anywhere';
     panel.setAttribute('aria-label', '사용자 선택 Windows 연결 및 이벤트 기록');
     const add = (parent, tag, value) => {
       const node = document.createElement(tag);
@@ -156,29 +166,38 @@ export function createStudentView({ onChange } = {}) {
       parent.appendChild(node);
       return node;
     };
-    add(panel, 'h3', '내 PC 연결·Windows 기록 · 실측 JSON 불러오기');
-    add(panel, 'p', '수동 파일 선택 방식이며 자동 갱신이 아닙니다. JSON은 서버로 전송하지 않습니다. Windows 이벤트는 XDR 사건과 별개입니다.');
-    const label = add(panel, 'label', 'Windows 측정 결과 JSON 선택: ');
+    add(panel, 'h3', '내 PC 연결·Windows 기록 · 측정 기록');
+    add(panel, 'p', '1. PowerShell 측정 스크립트로 새 JSON을 만듭니다. 2. 아래에서 새 파일을 선택합니다. 자동 갱신·서버 전송은 없으며, Windows 이벤트는 XDR 사건과 별개입니다.');
+    const label = add(panel, 'label', '새 연결·기록 측정 JSON 파일 선택: ');
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json,application/json';
     label.appendChild(input);
+    const readStatus = document.createElement('p');
+    readStatus.setAttribute('role', 'status');
+    readStatus.setAttribute('aria-live', 'polite');
+    readStatus.textContent = '파일을 선택하면 형식과 측정 시각을 확인합니다.';
+    panel.appendChild(readStatus);
     input.addEventListener('change', async () => {
       const file = input.files?.[0];
       if (!file) return;
+      readStatus.textContent = '파일 읽는 중…';
+      input.disabled = true;
       try {
         if (file.size > 65536) throw new Error('파일 크기가 64KB를 초과합니다.');
         connectionRecord = validateConnectionRecord(JSON.parse(await file.text()));
         connectionRecordError = '';
       } catch (error) {
         connectionRecord = null;
-        connectionRecordError = '파일 읽기 실패: ' + (error instanceof Error ? error.message : '확인 불가');
+        connectionRecordError = '파일 읽기 실패: ' + (error instanceof Error ? error.message : '확인 불가') + ' · 새 측정 파일을 만든 뒤 다시 선택하세요.';
       }
+      input.disabled = false;
+      readStatus.textContent = connectionRecordError || '파일 검증 완료 · 화면을 갱신합니다.';
       if (typeof studentRefresh === 'function') studentRefresh();
     });
     if (connectionRecordError) add(panel, 'p', connectionRecordError);
     if (!connectionRecord) {
-      add(panel, 'p', '확인 불가 · 유효한 측정 JSON 파일을 선택하지 않았습니다.');
+      add(panel, 'p', '확인 불가 · 유효한 측정 JSON 파일을 선택하지 않았습니다. 새로 측정하고 위 버튼으로 JSON 파일을 선택하세요.');
       root.appendChild(panel);
       return;
     }
@@ -189,10 +208,10 @@ export function createStudentView({ onChange } = {}) {
       (age < -300000 ? ' · PC 시간이 미래일 수 있습니다.' :
        age > 300000 ? ' · 과거 기록이며 현재 상태가 아닙니다.' : ' · 최근 기록, 실시간 값 아님.'));
     const grid = document.createElement('div');
-    grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:10px';
+    grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,215px),1fr));gap:12px;margin-top:14px';
     const card = (title, rows) => {
       const item = document.createElement('article');
-      item.style.cssText = 'border:1px solid #a0aab580;border-radius:10px;padding:12px;min-width:0';
+      item.style.cssText = 'border:1px solid #94a3b880;border-radius:12px;padding:15px;min-width:0;background:rgba(125,145,165,.06);overflow-wrap:anywhere';
       add(item, 'h4', title);
       for (const value of rows) add(item, 'p', value);
       grid.appendChild(item);
@@ -256,7 +275,7 @@ export function createStudentView({ onChange } = {}) {
       };
       const card = (parent, label, value, note) => {
         const item = document.createElement('article');
-        item.style.cssText = 'border:1px solid #a0aab580;border-radius:12px;padding:14px;min-width:0;background:rgba(125,145,165,.08)';
+        item.style.cssText = 'border:1px solid #94a3b880;border-radius:12px;padding:16px;min-width:0;background:rgba(125,145,165,.08);overflow-wrap:anywhere';
         const name = appendText(item, 'div', label);
         name.style.cssText = 'font-size:.85em;opacity:.8;margin-bottom:6px';
         const main = appendText(item, 'strong', value);
@@ -269,7 +288,7 @@ export function createStudentView({ onChange } = {}) {
       };
       const grid = document.createElement('div');
       grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:10px;margin:12px 0 18px';
-      appendText(root, 'h3', '보안 상태 요약');
+      appendText(root, 'h3', '보안 상태 요약 · SDP 연결');
       appendText(root, 'p', '실제 API 응답, 예제 자료, 연결 실패 및 확인 불가를 구분해 표시합니다.');
       root.appendChild(grid);
 
@@ -430,7 +449,7 @@ export function createStudentView({ onChange } = {}) {
       return root;
     },
     renderEvents({ status, mode, data, error } = {}) {
-            const root = document.createElement('section');
+      const root = document.createElement('section');
       renderConnectionRecord(root);
       const el = (tag, text, parent = root) => {
         const node = document.createElement(tag);
