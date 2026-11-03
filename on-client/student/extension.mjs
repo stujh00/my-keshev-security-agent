@@ -1,6 +1,112 @@
 // 이 파일은 학생이 같은 프로젝트에서 이어서 구현합니다.
 // 제공 UI를 받은 것만으로 단계 완료를 인정하지 않습니다.
-export function createStudentView() {
+export function createStudentView({ onChange } = {}) {
+  // PC measurement files are user-selected; no automatic server or native access.
+  let pcMeasurement = null;
+  let pcMeasurementError = '';
+  const validatePcMeasurement = value => {
+    const object = item => item !== null && typeof item === 'object' && !Array.isArray(item);
+    if (!object(value) || value.schemaVersion !== 1 ||
+        value.evidence !== 'actual_windows_query' || value.sampleData !== false) {
+      throw new Error('지원하지 않는 형식 또는 예시 자료입니다.');
+    }
+    const timestamp = value.collectedAt;
+    if (typeof timestamp !== 'string' ||
+        !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(timestamp) ||
+        !Number.isFinite(Date.parse(timestamp))) {
+      throw new Error('측정 시각을 확인할 수 없습니다.');
+    }
+    const metrics = [['cpu', 'percent'], ['memory', 'percent'],
+      ['diskC', 'freeGB'], ['diskC', 'freePercent']];
+    for (const [section, field] of metrics) {
+      const item = value[section];
+      if (!object(item) || !['ok', 'unavailable'].includes(item.status)) {
+        throw new Error(section + ' 상태 형식이 올바르지 않습니다.');
+      }
+      if (item.status === 'ok') {
+        if (typeof item[field] !== 'number' || !Number.isFinite(item[field]) ||
+            item[field] < 0 || (field !== 'freeGB' && item[field] > 100)) {
+          throw new Error(section + ' 값의 범위나 형식을 확인할 수 없습니다.');
+        }
+      }
+      if (item.observedAt !== null && item.observedAt !== undefined &&
+          (typeof item.observedAt !== 'string' || !Number.isFinite(Date.parse(item.observedAt)))) {
+        throw new Error(section + ' 관측 시각이 올바르지 않습니다.');
+      }
+    }
+    return value;
+  };
+  const renderPcMeasurement = root => {
+    const panel = document.createElement('section');
+    panel.setAttribute('aria-label', '사용자가 선택한 PC 측정 파일');
+    panel.style.cssText = 'border:1px solid #a0aab580;border-radius:12px;padding:14px;margin:20px 0';
+    const line = (tag, content) => {
+      const element = document.createElement(tag);
+      element.textContent = content;
+      panel.appendChild(element);
+      return element;
+    };
+    line('h3', '내 PC 상태 · 실측 JSON 불러오기');
+    line('p', '파일 선택 방식입니다. 자동 조회나 실시간 갱신이 아닙니다. 선택한 JSON은 서버에 업로드하지 않습니다.');
+    const label = line('label', 'Windows 측정 결과 JSON 선택: ');
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    label.appendChild(input);
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        if (file.size > 65536) throw new Error('파일이 64KB를 초과합니다.');
+        const parsed = JSON.parse(await file.text());
+        pcMeasurement = validatePcMeasurement(parsed);
+        pcMeasurementError = '';
+      } catch (error) {
+        pcMeasurement = null;
+        pcMeasurementError = '읽기 실패: ' + (error instanceof Error ? error.message : '확인 불가');
+      }
+      if (typeof onChange === 'function') onChange();
+    });
+    if (pcMeasurementError) line('p', pcMeasurementError);
+    if (!pcMeasurement) {
+      line('p', '확인 불가 · 아직 유효한 측정 파일을 선택하지 않았습니다.');
+      root.appendChild(panel);
+      return;
+    }
+    const measured = Date.parse(pcMeasurement.collectedAt);
+    const age = Date.now() - measured;
+    const labelText = age < -5 * 60 * 1000 ? '측정 시각이 현재보다 미래입니다. PC 시간을 확인하세요.'
+      : age > 5 * 60 * 1000 ? '과거 측정 기록입니다. 현재 수치가 아닙니다.'
+      : '최근 측정 기록입니다. 실시간 수치는 아닙니다.';
+    line('p', '데이터 표기: 사용자 선택 파일의 실제 Windows 조회 기록 주장 · 브라우저 독립 검증 아님');
+    line('p', '수집 시각: ' + pcMeasurement.collectedAt + ' · ' + labelText);
+    const values = [
+      ['CPU 사용률', pcMeasurement.cpu, 'percent', '%'],
+      ['메모리 사용률', pcMeasurement.memory, 'percent', '%'],
+      ['C: 디스크 여유 공간', pcMeasurement.diskC, 'freeGB', 'GB'],
+      ['C: 디스크 여유 비율', pcMeasurement.diskC, 'freePercent', '%']
+    ];
+    const grid = document.createElement('div');
+    grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:10px';
+    for (const [name, item, field, unit] of values) {
+      const card = document.createElement('article');
+      card.style.cssText = 'border:1px solid #a0aab580;border-radius:10px;padding:12px;min-width:0';
+      const heading = document.createElement('div');
+      heading.textContent = name;
+      card.appendChild(heading);
+      const strong = document.createElement('strong');
+      strong.style.cssText = 'display:block;margin-top:8px;font-size:1.2em';
+      strong.textContent = item.status === 'ok' ? item[field].toFixed(1) + ' ' + unit : '확인 불가';
+      card.appendChild(strong);
+      const note = document.createElement('small');
+      note.textContent = item.status === 'ok' ? (item.observedAt ?? pcMeasurement.collectedAt)
+        : (typeof item.reason === 'string' ? item.reason.slice(0, 150) : '측정 실패');
+      card.appendChild(note);
+      grid.appendChild(card);
+    }
+    panel.appendChild(grid);
+    root.appendChild(panel);
+  };
   return {
     renderIdentity({ me, devices, sessions } = {}) {
       const root = document.createElement('section');
@@ -126,6 +232,7 @@ export function createStudentView() {
           }
         }
       }
+      renderPcMeasurement(root);
       return root;
     },
     renderDecision({ status, mode, data, error, appId } = {}) {
