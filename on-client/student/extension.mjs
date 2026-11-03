@@ -1,6 +1,7 @@
 // 이 파일은 학생이 같은 프로젝트에서 이어서 구현합니다.
 // 제공 UI를 받은 것만으로 단계 완료를 인정하지 않습니다.
 export function createStudentView({ onChange } = {}) {
+  const studentRefresh = onChange;
   // PC measurement files are user-selected; no automatic server or native access.
   let pcMeasurement = null;
   let pcMeasurementError = '';
@@ -103,6 +104,124 @@ export function createStudentView({ onChange } = {}) {
         : (typeof item.reason === 'string' ? item.reason.slice(0, 150) : '측정 실패');
       card.appendChild(note);
       grid.appendChild(card);
+    }
+    panel.appendChild(grid);
+    root.appendChild(panel);
+  };
+  // User-selected Windows records only. No native API or network upload.
+  let connectionRecord = null;
+  let connectionRecordError = '';
+  const validateConnectionRecord = value => {
+    const obj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
+    const stamp = x => typeof x === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(x) && Number.isFinite(Date.parse(x));
+    const statusOk = x => obj(x) && ['ok', 'unavailable'].includes(x.status);
+    const count = x => Number.isSafeInteger(x) && x >= 0;
+    if (!obj(value) || value.schemaVersion !== 1 || value.evidence !== 'actual_windows_query' ||
+        value.sampleData !== false || value.windowHours !== 24 || !stamp(value.collectedAt)) {
+      throw new Error('지원하지 않는 형식, 예시 자료 또는 잘못된 측정 시각입니다.');
+    }
+    if (!statusOk(value.network) || !statusOk(value.firewall) || !statusOk(value.windowsEvents)) {
+      throw new Error('조회 상태를 확인할 수 없습니다.');
+    }
+    if (value.network.status === 'ok' &&
+        (!Array.isArray(value.network.adapters) || value.network.adapters.length > 256 ||
+         value.network.adapters.some(x => !obj(x) || typeof x.name !== 'string' ||
+           typeof x.status !== 'string' || typeof x.linkSpeed !== 'string'))) {
+      throw new Error('네트워크 어댑터 목록 형식이 올바르지 않습니다.');
+    }
+    if (value.firewall.status === 'ok' &&
+        (!Array.isArray(value.firewall.profiles) || value.firewall.profiles.length > 16 ||
+         value.firewall.profiles.some(x => !obj(x) || typeof x.name !== 'string' ||
+           typeof x.enabled !== 'boolean'))) {
+      throw new Error('방화벽 프로필 형식이 올바르지 않습니다.');
+    }
+    if (value.windowsEvents.status === 'ok') {
+      for (const key of ['system', 'application']) {
+        const item = value.windowsEvents[key];
+        if (!statusOk(item) || (item.status === 'ok' &&
+            (!count(item.warningCount) || !count(item.errorCount)))) {
+          throw new Error('Windows 로그 집계 형식이 올바르지 않습니다: ' + key);
+        }
+      }
+    }
+    return value;
+  };
+  const renderConnectionRecord = root => {
+    const panel = document.createElement('section');
+    panel.style.cssText = 'border:1px solid #a0aab580;border-radius:12px;padding:14px;margin:12px 0 22px;overflow-wrap:anywhere';
+    panel.setAttribute('aria-label', '사용자 선택 Windows 연결 및 이벤트 기록');
+    const add = (parent, tag, value) => {
+      const node = document.createElement(tag);
+      node.textContent = String(value);
+      parent.appendChild(node);
+      return node;
+    };
+    add(panel, 'h3', '내 PC 연결·Windows 기록 · 실측 JSON 불러오기');
+    add(panel, 'p', '수동 파일 선택 방식이며 자동 갱신이 아닙니다. JSON은 서버로 전송하지 않습니다. Windows 이벤트는 XDR 사건과 별개입니다.');
+    const label = add(panel, 'label', 'Windows 측정 결과 JSON 선택: ');
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    label.appendChild(input);
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        if (file.size > 65536) throw new Error('파일 크기가 64KB를 초과합니다.');
+        connectionRecord = validateConnectionRecord(JSON.parse(await file.text()));
+        connectionRecordError = '';
+      } catch (error) {
+        connectionRecord = null;
+        connectionRecordError = '파일 읽기 실패: ' + (error instanceof Error ? error.message : '확인 불가');
+      }
+      if (typeof studentRefresh === 'function') studentRefresh();
+    });
+    if (connectionRecordError) add(panel, 'p', connectionRecordError);
+    if (!connectionRecord) {
+      add(panel, 'p', '확인 불가 · 유효한 측정 JSON 파일을 선택하지 않았습니다.');
+      root.appendChild(panel);
+      return;
+    }
+    const record = connectionRecord;
+    const age = Date.now() - Date.parse(record.collectedAt);
+    add(panel, 'p', '출처: 사용자 선택 파일의 실제 Windows 조회 기록 주장 (브라우저 독립 검증 아님)');
+    add(panel, 'p', '수집 시각: ' + record.collectedAt +
+      (age < -300000 ? ' · PC 시간이 미래일 수 있습니다.' :
+       age > 300000 ? ' · 과거 기록이며 현재 상태가 아닙니다.' : ' · 최근 기록, 실시간 값 아님.'));
+    const grid = document.createElement('div');
+    grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:10px';
+    const card = (title, rows) => {
+      const item = document.createElement('article');
+      item.style.cssText = 'border:1px solid #a0aab580;border-radius:10px;padding:12px;min-width:0';
+      add(item, 'h4', title);
+      for (const value of rows) add(item, 'p', value);
+      grid.appendChild(item);
+    };
+    const reason = x => x && typeof x.reason === 'string' ? x.reason.slice(0, 150) : '조회 실패 또는 권한 없음';
+    const net = record.network;
+    card('네트워크 링크 (인터넷·SDP 연결 여부 아님)',
+      net.status === 'ok'
+        ? (net.adapters.length ? net.adapters.map(x => x.name.slice(0, 100) + ': ' +
+            x.status.slice(0, 50) + ' / ' + x.linkSpeed.slice(0, 40)) : ['조회 성공 · 어댑터 0개'])
+        : ['확인 불가: ' + reason(net)]);
+    const fw = record.firewall;
+    card('Windows 방화벽 프로필 (규칙 안전성 판정 아님)',
+      fw.status === 'ok'
+        ? (fw.profiles.length ? fw.profiles.map(x => x.name.slice(0, 40) + ': ' +
+            (x.enabled ? '활성' : '비활성')) : ['조회 성공 · 프로필 0개'])
+        : ['확인 불가: ' + reason(fw)]);
+    for (const [key, title] of [['system', 'System'], ['application', 'Application']]) {
+      const events = record.windowsEvents;
+      if (events.status !== 'ok') {
+        card(title + ' 이벤트 (최근 24시간)', ['확인 불가: ' + reason(events)]);
+        continue;
+      }
+      const item = events[key];
+      card(title + ' 이벤트 (최근 24시간)',
+        item.status === 'ok'
+          ? ['경고 ' + item.warningCount + '건 · 오류 ' + item.errorCount + '건',
+             'Windows 이벤트 수입니다. 보안 공격 건수가 아닙니다.']
+          : ['확인 불가: ' + reason(item)]);
     }
     panel.appendChild(grid);
     root.appendChild(panel);
@@ -311,7 +430,8 @@ export function createStudentView({ onChange } = {}) {
       return root;
     },
     renderEvents({ status, mode, data, error } = {}) {
-      const root = document.createElement('section');
+            const root = document.createElement('section');
+      renderConnectionRecord(root);
       const el = (tag, text, parent = root) => {
         const node = document.createElement(tag);
         node.textContent = String(text ?? '');
