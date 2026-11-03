@@ -1369,3 +1369,375 @@ function init() {
 }
 
 init();
+
+/* Keshev Console v1: presentation-only enhancement. No API requests, storage or policy changes. */
+const keshevById = id => document.getElementById(id);
+const keshevNode = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+
+const keshevNavigate = view => {
+  const tab = keshevById(`tab-${view}`);
+  if (tab) tab.click();
+  keshevById('main')?.scrollIntoView({behavior:'smooth', block:'start'});
+};
+
+const keshevMetric = (title, value, description, tone) => {
+  const card = keshevNode('article', `console-keshevMetric ${tone || ''}`);
+  card.append(keshevNode('span', 'console-keshevMetric-label', title));
+  const number = keshevNode('strong', 'console-keshevMetric-value', value);
+  card.append(number, keshevNode('span', 'console-keshevMetric-detail', description));
+  return {card, number};
+};
+
+function keshevInitConsole() {
+  const protection = keshevById('view-protection');
+  if (!protection || keshevById('console-overview')) return;
+  const overview = keshevNode('section', 'console-overview');
+  overview.id = 'console-overview';
+  overview.setAttribute('aria-label', '플랫폼 운영 현황 요약');
+
+  const hero = keshevNode('div', 'console-hero');
+  const heading = keshevNode('div', 'console-hero-copy');
+  heading.append(keshevNode('span', 'console-eyebrow', 'SECURITY OPERATIONS  /  LOCAL CONSOLE'));
+  heading.append(keshevNode('h2', 'console-hero-title', '보안 운영 현황'));
+  heading.append(keshevNode('p', 'console-hero-desc', '신원·기기·업무 앱 접근과 보안 기록을 한곳에서 확인합니다. 조회되지 않은 값은 정상이나 0건으로 계산하지 않습니다.'));
+  const actions = keshevNode('div', 'console-quick-actions');
+  for (const [text, id] of [['ZTNA 접근 관리', 'apps'], ['XDR 이벤트', 'records']]) {
+    const button = keshevNode('button', 'console-action', text);
+    button.type = 'button';
+    button.addEventListener('click', () => keshevNavigate(id));
+    actions.append(button);
+  }
+  hero.append(heading, actions);
+  overview.append(hero);
+
+  const metrics = keshevNode('div', 'console-metrics');
+  const engine = keshevMetric('보안 엔진', '확인 중', '실제 SDP 연결 상태', 'console-accent');
+  const identity = keshevMetric('사용자 · 기기', '확인 중', '현재 신원 데이터', '');
+  const apps = keshevMetric('업무 애플리케이션', '확인 중', '접근 가능한 앱 목록', '');
+  const events = keshevMetric('보안 이벤트', '확인 중', '서버에서 확인된 기록', '');
+  for (const m of [engine, identity, apps, events]) metrics.append(m.card);
+  overview.append(metrics);
+
+  const strip = keshevNode('div', 'console-info-strip');
+  const stripText = keshevNode('div', '', '연결 상태와 별개로, 내 PC 실측 JSON은 아래 학생 화면에서 수동으로 불러올 수 있습니다. 마지막 측정 시각을 확인하세요.');
+  const link = keshevNode('button', 'console-text-button', 'PC 상태 카드로 이동');
+  link.type = 'button';
+  link.addEventListener('click', () => keshevById('student-identity')?.scrollIntoView({behavior:'smooth',block:'start'}));
+  strip.append(stripText, link);
+  overview.append(strip);
+  const h1 = protection.querySelector('h1');
+  if (h1) h1.after(overview);
+  else protection.prepend(overview);
+
+  function updateSummary() {
+    const mode = keshevById('mode-badge')?.dataset.mode || 'unknown';
+    const known = ['connected','demo'].includes(mode);
+    engine.number.textContent = ({connected:'연결 보고됨',demo:'예제 모드',disconnected:'연결 없음',unknown:'확인 불가',loading:'확인 중'})[mode] || '확인 불가';
+    engine.card.dataset.status = mode;
+    const user = keshevById('identity-user')?.textContent || '';
+    const device = keshevById('identity-device')?.textContent || '';
+    const hasIdentity = known && user && !/확인 불가|불러오는 중|요청 실패/.test(user) && device && !/확인 불가|불러오는 중|요청 실패/.test(device);
+    identity.number.textContent = hasIdentity ? '조회됨' : known ? '확인 불가' : mode==='loading' ? '확인 중' : '조회 불가';
+    const appRegion = keshevById('apps');
+    const appCount = appRegion?.querySelectorAll('.app-button').length || 0;
+    apps.number.textContent = known && appCount ? `${appCount}개 표시` : known ? '확인 불가' : mode==='loading' ? '확인 중' : '조회 불가';
+    const records = keshevById('records-list');
+    const eventCount = records?.querySelectorAll('.event').length || 0;
+    events.number.textContent = known && eventCount ? `${eventCount}건 표시` : known ? '확인 불가' : mode==='loading' ? '확인 중' : '조회 불가';
+    const modeText = mode==='demo' ? '예제 데이터 · 실제 운영 아님' : mode==='disconnected' ? '엔진 연결 전 · 보안 상태 미확인' : mode==='connected' ? '엔진 연결 보고됨 · 개별 데이터 확인 필요' : '연결 상태 확인 중';
+    stripText.textContent = `${modeText}. 내 PC 실측 JSON은 별도 수동 기록이며 실시간 서버 관측값이 아닙니다.`;
+  }
+  // 기존 app.js가 가진 검증된 결과만 읽습니다. 새 API 호출이나 측정값 생성은 하지 않습니다.
+  const observed = [keshevById('mode-badge'), keshevById('identity-user'), keshevById('identity-device'), keshevById('apps'), keshevById('records-list')].filter(Boolean);
+  const observer = new MutationObserver(updateSummary);
+  for (const target of observed) observer.observe(target,{attributes: target.id==='mode-badge', childList:true, subtree:target.id!=='mode-badge', characterData:true});
+  updateSummary();
+
+  const titles = [
+    ['apps','ZTNA · ZERO TRUST ACCESS','업무 앱 접근 관리','현재 사용자 범위의 앱을 선택해 서버의 접근 판정을 조회합니다. 실제 엔진이 미연결이면 허용·차단으로 추정하지 않습니다.'],
+    ['records','XDR · DETECTION & RESPONSE','보안 이벤트 조사','접속·XDR 사건과 증거, AI 설명, 조치 상태를 확인합니다. Windows 진단 기록은 XDR 탐지 결과가 아닙니다.']
+  ];
+  for (const [view, eyebrow, title, description] of titles) {
+    const section = keshevById(`view-${view}`);
+    const h1 = section?.querySelector('h1');
+    if (!h1) continue;
+    const band = keshevNode('div','console-section-hero');
+    band.append(keshevNode('span','console-eyebrow',eyebrow), keshevNode('h2','console-section-title',title),keshevNode('p','console-section-copy',description));
+    h1.after(band);
+  }
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', keshevInitConsole, {once:true});
+else keshevInitConsole();
+
+/* KESHEV Console UI v2 BEGIN */
+/* KESHEV Console v2: presentation-only overlay. Preserve existing API/control handlers. */
+(() => {
+  'use strict';
+  const FLAG = '__keshevConsoleV2';
+  if (window[FLAG]) return;
+  window[FLAG] = true;
+
+  const $ = id => document.getElementById(id);
+  const node = (tag, className, text) => {
+    const n = document.createElement(tag);
+    if (className) n.className = className;
+    if (text !== undefined && text !== null) n.textContent = String(text);
+    return n;
+  };
+  const add = (parent, ...children) => { for (const child of children) if (child) parent.append(child); return parent; };
+  const make = (tag, cls, text, parent) => add(parent, node(tag, cls, text));
+  const button = (label, click, className = 'kv2-btn') => {
+    const b = node('button', className, label);
+    b.type = 'button';
+    b.addEventListener('click', click);
+    return b;
+  };
+  const code = (label, kind = 'neutral') => node('span', `kv2-chip kv2-${kind}`, label);
+  const title = (kicker, heading, description) => {
+    const root = node('div', 'kv2-title');
+    add(root, node('div', 'kv2-kicker', kicker), node('h2', 'kv2-heading', heading), node('p', 'kv2-description', description));
+    return root;
+  };
+  const panel = (name, subtitle, klass = '') => {
+    const shell = node('section', `kv2-panel ${klass}`);
+    const head = node('div', 'kv2-panel-head');
+    add(head, node('h3', '', name), node('span', 'kv2-panel-sub', subtitle));
+    add(shell, head);
+    return shell;
+  };
+  const empty = (heading, desc) => {
+    const e = node('div', 'kv2-empty');
+    add(e, node('div', 'kv2-empty-sign', '◇'), node('strong', '', heading), node('p', '', desc));
+    return e;
+  };
+  const showView = name => {
+    const tab = document.querySelector(`#nav [data-view="${name}"]`);
+    if (tab) tab.click();
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  };
+  const openLegacy = (view, targetId) => {
+    showView(view);
+    const detail = $(`kv2-legacy-${view}`);
+    if (detail) detail.open = true;
+    const target = targetId ? $(targetId) : detail;
+    if (target) setTimeout(() => target.scrollIntoView({behavior:'smooth',block:'start'}), 50);
+  };
+
+  const state = { me: null, apps: null, events: null, filter: 'all', query: '', selectedEvent: null, updatedAt: null };
+  function isVerified(resource) { return resource && resource.ok === true && resource.mode === 'connected'; }
+  function unwrap(json) {
+    if (!json || typeof json !== 'object') return {ok:false,mode:'unknown'};
+    const mode = ['connected','demo','disconnected'].includes(json.meta?.mode) ? json.meta.mode : 'unknown';
+    return {ok:json.ok === true, mode, data:json.data, checkedAt:json.meta?.checkedAt || null, error:json.error?.code || null};
+  }
+  async function fetchResource(path) {
+    try {
+      const r = await fetch(path, {method:'GET', credentials:'same-origin', cache:'no-store', headers:{Accept:'application/json'}});
+      const json = await r.json();
+      const result = unwrap(json);
+      if (!r.ok) result.ok = false;
+      return result;
+    } catch { return {ok:false,mode:'unknown',error:'NETWORK_UNAVAILABLE'}; }
+  }
+  const mode = () => {
+    const modes = [state.me, state.apps, state.events].filter(Boolean).map(r => r.mode);
+    return modes.length === 3 && modes.every(m => m === modes[0]) ? modes[0] : 'unknown';
+  };
+  const modeName = () => ({connected:'엔진 연결 확인',demo:'예제 모드',disconnected:'엔진 연결 없음',unknown:'상태 확인 불가'})[mode()];
+  const valid = key => isVerified(state[key]) && (key === 'me' ? !!state.me.data?.user : Array.isArray(state[key].data));
+  const eventList = () => valid('events') ? state.events.data.filter(x => x && typeof x === 'object') : [];
+  const appsList = () => valid('apps') ? state.apps.data.filter(x => x && typeof x === 'object') : [];
+  const format = v => { const d = new Date(v); return !v || !Number.isFinite(d.getTime()) ? '시간 확인 불가' : d.toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); };
+
+  function metric(label, value, context, tone) {
+    const el = node('div', 'kv2-metric');
+    add(el, node('div', 'kv2-metric-label', label), node('div', `kv2-metric-value ${tone || ''}`, value), node('div','kv2-metric-sub',context));
+    return el;
+  }
+  const labelCount = key => valid(key) ? String(state[key].data.length) : '—';
+  function buildHero(page, kicker, name, desc, actions) {
+    const h = node('section','kv2-hero');
+    const left = title(kicker, name, desc);
+    const right = node('div','kv2-hero-actions');
+    actions.forEach(a => add(right,button(a.text,a.run,a.primary ? 'kv2-btn kv2-primary':'kv2-btn')));
+    add(h,left,right);
+    page.append(h);
+  }
+  function buildMetrics(page, definition) {
+    const grid = node('div','kv2-metrics');
+    definition.forEach(([k,v,d,t])=>grid.append(metric(k,v,d,t)));
+    page.append(grid);
+  }
+  function itemRow(label, value, cls) {
+    const r=node('div','kv2-row');
+    add(r,node('span','',label),node('strong',cls||'',value));
+    return r;
+  }
+  function renderHome(page) {
+    buildHero(page,'SECURITY OPERATIONS / OVERVIEW','Security Overview','ZTNA 접근 상태, 엔드포인트 기록, XDR 조회 결과를 한곳에서 확인합니다.',[
+      {text:'ZTNA 관리',run:()=>showView('apps')},{text:'XDR 조사',run:()=>showView('records'),primary:true}
+    ]);
+    const current = mode();
+    buildMetrics(page,[
+      ['ZTNA ENGINE',modeName(),current==='connected'?'서버 응답에서 연결 확인':'연결을 확인하지 못한 상태',current==='connected'?'kv2-good':'kv2-warn'],
+      ['IDENTITY',valid('me')?(state.me.data.user?.label||'확인됨'):'조회 불가',valid('me')?'서버 확인 신원':'사용자 정보 미확인',''],
+      ['APPLICATIONS',labelCount('apps'),valid('apps')?'현재 사용자에게 조회된 앱':'앱 목록 조회 불가',''],
+      ['SECURITY EVENTS',labelCount('events'),valid('events')?'조회된 본인 범위 기록':'XDR 사건 수 확인 불가','']
+    ]);
+    const cols=node('div','kv2-columns');
+    const conn=panel('플랫폼 연결 상태','연결 진단 / 현재 요청 결과');
+    const cbody=node('div','kv2-panel-body');
+    add(cbody,itemRow('케셰브 로컬 서버','UI 실행 중','kv2-good'),itemRow('ZTNA 엔진',modeName(),current==='connected'?'kv2-good':'kv2-warn'),itemRow('AI 분석','상태 별도 확인 필요',''),itemRow('마지막 조회',state.updatedAt?format(state.updatedAt):'확인 중',''));
+    add(cbody,node('p','kv2-hint','로컬 서버가 켜진 상태와 실제 SDP/XDR 엔진 연결은 서로 다릅니다.'));
+    cbody.append(button('연결 오류 상세 열기',()=>{$('kv2-diagnostics').open=true;$('kv2-diagnostics').scrollIntoView({behavior:'smooth'})}));
+    conn.append(cbody);
+    const activity=panel('최근 보안 기록','서버에서 확인된 기록만 표시');
+    const abody=node('div','kv2-panel-body');
+    if(valid('events') && eventList().length) {
+      eventList().slice(0,4).forEach(e=>{
+        const row=node('div','kv2-event-mini');
+        add(row,node('span','kv2-mini-type',e.kind==='xdr'?'XDR':'접속'),node('span','kv2-mini-summary',String(e.summary||'내용 없음')),node('time','',format(e.at)));
+        abody.append(row);
+      });
+    } else abody.append(empty(valid('events')?'표시할 기록이 없습니다':'이벤트 조회 대기','엔진 미연결은 보안 사고 0건을 의미하지 않습니다.'));
+    abody.append(button('사건 조사 화면 열기',()=>showView('records')));
+    activity.append(abody);add(cols,conn,activity);page.append(cols);
+    const agent=panel('Endpoint telemetry','Windows 실측 기록은 수동 JSON 입력으로 분리됩니다.','kv2-wide');
+    const agentBody=node('div','kv2-agent');
+    add(agentBody,node('div','kv2-agent-symbol','▣'));
+    const info=node('div','kv2-agent-info');
+    add(info,node('strong','','PC 상태 · Windows 로그 기록'),node('p','','실제 측정 파일을 불러오면 CPU·메모리·디스크 및 Windows 연결 기록을 확인할 수 있습니다. 자동 실시간 수집은 아닙니다.'));
+    add(agentBody,info,button('PC 측정 화면 열기',()=>openLegacy('protection','student-identity')));
+    agent.append(agentBody);page.append(agent);
+  }
+  function renderApps(page) {
+    buildHero(page,'ZERO TRUST / APPLICATION ACCESS','ZTNA Access Control','현재 신원에 허용된 업무 앱을 조회하고 원천 엔진에 접근 판정을 요청합니다.',[
+      {text:'기존 접근 요청 열기',run:()=>openLegacy('apps','apps'),primary:true}
+    ]);
+    buildMetrics(page,[
+      ['ENGINE STATUS',modeName(),'실제 정책 판정 결과와 구분',mode()==='connected'?'kv2-good':'kv2-warn'],
+      ['IDENTITY',valid('me')?(state.me.data.user?.label||'확인됨'):'확인 불가','현재 사용자',''],
+      ['AVAILABLE APPS',labelCount('apps'),'목록은 허용 판정이 아님',''],
+      ['ACCESS DECISIONS','—','원천 판정은 기존 요청 화면에서 확인','']
+    ]);
+    const cols=node('div','kv2-columns kv2-columns-apps');
+    const list=panel('업무 애플리케이션','현재 사용자에게 반환된 목록');
+    const body=node('div','kv2-panel-body');
+    if(valid('apps') && appsList().length){
+      for(const app of appsList()){
+        const row=node('div','kv2-app-row');
+        add(row,node('div','kv2-app-icon','▦'));
+        const info=node('div','kv2-app-meta');
+        add(info,node('strong','',app.name||'이름 없음'),node('span','',app.id||'ID 확인 불가'));
+        add(row,info,button('판정 요청',()=>openLegacy('apps','apps'),'kv2-btn kv2-btn-small'));
+        body.append(row);
+      }
+    }else body.append(empty(valid('apps')?'등록된 앱이 없습니다':'앱 목록을 조회할 수 없습니다','미연결 상태에서는 업무 앱이나 접근 가능 여부를 임의로 생성하지 않습니다.'));
+    list.append(body);
+    const decision=panel('접근 평가 흐름','원천 서버의 결정만 신뢰');
+    const db=node('div','kv2-panel-body');
+    [['01','사용자 확인','현재 로그인·세션 확인'],['02','애플리케이션 선택','본인 범위의 업무 앱 조회'],['03','정책 판정 요청','허용 · 거부 · 추가 확인 · 확인 불가'],['04','원천 결과 확인','AI 설명과 실제 집행 결과는 구분']].forEach(([n,l,d])=>{
+      const r=node('div','kv2-step');add(r,node('span','kv2-step-n',n));const text=node('div','');add(text,node('strong','',l),node('small','',d));add(r,text);db.append(r);
+    });
+    db.append(node('p','kv2-hint','현재 화면은 정책을 자동으로 허용하거나 차단하지 않습니다.'));
+    decision.append(db);add(cols,list,decision);page.append(cols);
+  }
+  function renderRecords(page) {
+    buildHero(page,'EXTENDED DETECTION & RESPONSE','XDR Incident Center','사건의 출처, 규칙, 근거와 처리 상태를 확인합니다. Windows 이벤트 로그는 XDR 탐지로 집계하지 않습니다.',[
+      {text:'기존 AI·조치 기능 열기',run:()=>openLegacy('records','records'),primary:true}
+    ]);
+    const items=eventList();
+    const access=valid('events')?items.filter(e=>e.kind==='access').length:'—';
+    const xdr=valid('events')?items.filter(e=>e.kind==='xdr').length:'—';
+    buildMetrics(page,[
+      ['EVENT FEED',valid('events')?'조회 성공':'조회 불가','현재 사용자 범위 기록',''],
+      ['RETRIEVED',labelCount('events'),'반환된 기록 개수 (전체 건수 아님)',''],
+      ['XDR EVENTS',String(xdr),'XDR 유형의 조회 기록',''],
+      ['ACCESS LOGS',String(access),'접근 기록의 조회 개수','']
+    ]);
+    const board=node('div','kv2-investigation');
+    const list=panel('이벤트 탐색','기록 선택 시 근거와 규칙 표시');
+    const controls=node('div','kv2-controls');
+    const input=node('input','kv2-search');input.type='search';input.placeholder='사건 ID 또는 요약 검색';input.value=state.query;input.setAttribute('aria-label','사건 검색');
+    input.addEventListener('input',()=>{state.query=input.value;drawRows()});
+    const select=node('select','kv2-filter');select.setAttribute('aria-label','기록 유형');
+    [['all','모든 유형'],['xdr','XDR'],['access','접속 기록']].forEach(([value,label])=>{const opt=node('option','',label);opt.value=value;select.append(opt)});
+    select.value=state.filter;select.addEventListener('change',()=>{state.filter=select.value;drawRows()});
+    add(controls,input,select);list.append(controls);
+    const records=node('div','kv2-record-table');list.append(records);
+    const detail=panel('사건 상세','선택한 이벤트 원천 근거');
+    const dbody=node('div','kv2-panel-body');detail.append(dbody);
+    function drawDetail(){dbody.replaceChildren();const e=items.find(e=>e.id===state.selectedEvent);
+      if(!e){dbody.append(empty('선택된 사건 없음','왼쪽 목록에서 사건을 선택하면 근거와 규칙을 확인할 수 있습니다.'));return;}
+      add(dbody,code(e.kind==='xdr'?'XDR EVENT':'ACCESS LOG',e.kind==='xdr'?'danger':'neutral'),node('h3','kv2-detail-title',e.summary||'요약 없음'));
+      add(dbody,itemRow('이벤트 ID',e.id||'확인 불가'),itemRow('기록 시각',format(e.at)),itemRow('접근 상태',e.state?.access||'unknown'),itemRow('기기 상태',e.state?.device||'unknown'));
+      const evid=node('div','kv2-evidence');add(evid,node('h4','','근거'),...(Array.isArray(e.evidence)&&e.evidence.length?e.evidence.map(v=>node('p','',v.text||v.id||'확인 불가')):[node('p','','근거 없음 / 확인 불가')]));
+      const rules=node('div','kv2-evidence');add(rules,node('h4','','규칙'),...(Array.isArray(e.rules)&&e.rules.length?e.rules.map(v=>node('p','',v.text||v.id||'확인 불가')):[node('p','','규칙 정보 없음')]));
+      add(dbody,evid,rules,button('AI 설명·대응 화면 열기',()=>openLegacy('records','student-explanation')));
+    }
+    function drawRows(){records.replaceChildren();if(!valid('events')){records.append(empty('XDR 엔진 응답 없음','엔진 연결 전에는 실제 사건과 위험도를 판단할 수 없습니다.'));drawDetail();return;}
+      const q=state.query.trim().toLocaleLowerCase();const filtered=items.filter(e=>(state.filter==='all'||e.kind===state.filter)&&(!q||String(e.summary||'').toLocaleLowerCase().includes(q)||String(e.id||'').toLocaleLowerCase().includes(q)));
+      if(!filtered.length)records.append(empty('조건에 맞는 기록 없음','검색 또는 유형 필터를 변경해 보세요.'));
+      filtered.forEach(e=>{const item=button('',()=>{state.selectedEvent=e.id;drawRows()},`kv2-record-row ${state.selectedEvent===e.id?'kv2-selected':''}`);
+        add(item,code(e.kind==='xdr'?'XDR':'접속',e.kind==='xdr'?'danger':'neutral'));
+        const msg=node('span','kv2-record-message');add(msg,node('strong','',e.summary||'요약 없음'),node('small','',String(e.id||'ID 없음')));
+        add(item,msg,node('time','',format(e.at)));records.append(item);
+      });drawDetail();
+    }
+    add(board,list,detail);page.append(board);drawRows();
+    const footer=panel('데이터 출처 안내','신뢰할 수 있는 결과만 합산');
+    const body=node('div','kv2-panel-body kv2-source-note');body.textContent='XDR 사건은 서버에서 검증된 본인 범위 기록만 보여줍니다. Windows 시스템 이벤트는 별도의 측정 파일이며 탐지 건수나 위협 심각도로 간주하지 않습니다.';
+    add(body,button('Windows 기록 확인',()=>openLegacy('records','student-events')));footer.append(body);page.append(footer);
+  }
+
+  function setupShell(){
+    const main=$('main');if(!main)return false;
+    document.body.classList.add('keshev-console-v2');
+    const error=$('error-message'),notice=main.querySelector(':scope > .notice');
+    if(error){const d=node('details','kv2-diagnostics');d.id='kv2-diagnostics';
+      const summary=node('summary','','연결 상태와 진단 알림 상세 보기');
+      add(d,summary);main.insertBefore(d,error);d.append(error);if(notice)d.append(notice);
+    }
+    const viewDef=[['protection',renderHome],['apps',renderApps],['records',renderRecords]];
+    for(const [name] of viewDef){const view=$(`view-${name}`);if(!view)continue;
+      const h1=view.querySelector(':scope > h1');
+      const detail=node('details','kv2-legacy');detail.id=`kv2-legacy-${name}`;
+      const summary=node('summary','','기존 기능 · 상세 조회 및 작업 화면 열기');
+      detail.append(summary);
+      for(const child of [...view.children]) if(child!==h1)detail.append(child);
+      if(h1){h1.classList.add('kv2-original-title');}
+      view.append(detail);
+      const landing=node('div','kv2-screen');landing.id=`kv2-screen-${name}`;
+      view.insertBefore(landing,detail);
+    }
+    return true;
+  }
+  function draw(){
+    for(const [name,renderer] of [['protection',renderHome],['apps',renderApps],['records',renderRecords]]){
+      const page=$(`kv2-screen-${name}`);if(!page)continue;page.replaceChildren();renderer(page);
+    }
+  }
+  let serial=0;
+  async function refresh(){
+    const generation=++serial;
+    const result=await Promise.all(['/api/me','/api/apps','/api/events'].map(fetchResource));
+    if(generation!==serial)return;
+    [state.me,state.apps,state.events]=result;
+    state.updatedAt=new Date().toISOString();
+    if(!eventList().some(e=>e.id===state.selectedEvent))state.selectedEvent=null;
+    draw();
+  }
+  if(setupShell()){
+    draw();
+    refresh();
+    const reload=$('refresh');if(reload)reload.addEventListener('click',()=>refresh());
+  }
+})();
+
+/* KESHEV Console UI v2 END */
