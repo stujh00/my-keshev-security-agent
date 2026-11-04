@@ -1579,6 +1579,63 @@ else keshevInitConsole();
     add(r,node('span','',label),node('strong',cls||'',value));
     return r;
   }
+  // KESHEV Endpoint phase 2: measured local snapshots, never masquerade as XDR detections.
+  function renderEndpointSnapshot(area) {
+    const stateNode=node('p','kv2-endpoint-note','로컬 Windows 측정 기록을 확인하고 있습니다…');
+    const summary=node('div','kv2-endpoint-grid');
+    const footer=node('div','kv2-endpoint-actions');
+    add(area,summary,stateNode,footer);
+    const cell=(label,value)=>{
+      const wrapper=node('div','kv2-endpoint-cell');
+      add(wrapper,node('span','',label),node('strong','',value));
+      return wrapper;
+    };
+    const fmtPercent=v=>typeof v==='number'?v.toFixed(1)+'%':'확인 불가';
+    const fmtCount=v=>Number.isInteger(v)?v+'건':'확인 불가';
+    const fmtTime=v=>format(v);
+    let runId=0;
+    async function update() {
+      const thisRun=++runId;
+      stateNode.textContent='로컬 측정 결과를 조회하고 있습니다…';
+      let result;
+      try {
+        const response=await fetch('/api/endpoint/local',{method:'GET',credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}});
+        const json=await response.json();
+        if(!response.ok || json?.ok!==true || json?.data?.source!=='local_windows_measurement')throw Error('UNAVAILABLE');
+        result=json.data;
+      }catch{if(thisRun===runId){summary.replaceChildren();stateNode.textContent='측정값을 조회하지 못했습니다. 서버 재시작 및 Agent 수집 여부를 확인하세요.';}return;}
+      if(thisRun!==runId)return;
+      const pc=result.pc,cn=result.connection;
+      summary.replaceChildren(
+        cell('CPU 사용률',pc.status==='ok'?fmtPercent(pc.cpuPercent):'조회 불가'),
+        cell('메모리 사용률',pc.status==='ok'?fmtPercent(pc.memoryPercent):'조회 불가'),
+        cell('C: 여유 용량',pc.status==='ok'&&typeof pc.diskFreeGB==='number'?pc.diskFreeGB.toFixed(1)+' GB':'조회 불가'),
+        cell('네트워크 어댑터',cn.status==='ok'&&cn.networkStatus==='ok'?cn.adapters.filter(x=>x.status==='Up').length+'개 Up':'조회 불가'),
+        cell('Windows 방화벽',cn.status==='ok'&&cn.firewallStatus==='ok'?cn.firewall.filter(x=>x.enabled===true).length+'/'+cn.firewall.length+' 활성':'조회 불가'),
+        cell('System 오류 / 24h',cn.status==='ok'?fmtCount(cn.system.error):'조회 불가'),
+        cell('Application 오류 / 24h',cn.status==='ok'?fmtCount(cn.application.error):'조회 불가')
+      );
+      const status= [pc,cn].filter(x=>x.status==='ok');
+      if(!status.length)stateNode.textContent='수집된 파일이 없습니다. Agent를 1회 실행해 주세요.';
+      else {
+        const fresh=status.every(x=>x.freshness==='recent');
+        stateNode.textContent=(fresh?'저장된 측정 기록':'오래되었거나 시각을 검증할 수 없는 측정 기록')+
+          ' · PC '+(pc.status==='ok'?fmtTime(pc.collectedAt):'미수집')+
+          ' · 연결/이벤트 '+(cn.status==='ok'?fmtTime(cn.collectedAt):'미수집')+
+          ' · 자동 실시간 수집 아님 · Windows 오류 건수 ≠ XDR 탐지 건수';
+      }
+    }
+    footer.append(button('저장된 측정값 다시 읽기',()=>update()));
+    const scheduleInfo=node('p','kv2-endpoint-note kv3-poll-hint','화면은 60초마다 저장된 측정값을 다시 읽습니다. Windows 자동 수집은 별도 Agent 실행이 필요합니다.');
+    footer.append(scheduleInfo);
+    update();
+    // Poll while this view is attached. Stop the interval after navigation.
+    const polling=setInterval(()=>{
+      if(!document.contains(area)){clearInterval(polling);return;}
+      if(document.visibilityState==='visible')update();
+    },60000);
+  }
+
   function renderHome(page) {
     buildHero(page,'SECURITY OPERATIONS / OVERVIEW','Security Overview','ZTNA 접근 상태, 엔드포인트 기록, XDR 조회 결과를 한곳에서 확인합니다.',[
       {text:'ZTNA 관리',run:()=>showView('apps')},{text:'XDR 조사',run:()=>showView('records'),primary:true}
@@ -1608,13 +1665,13 @@ else keshevInitConsole();
     } else abody.append(empty(valid('events')?'표시할 기록이 없습니다':'이벤트 조회 대기','엔진 미연결은 보안 사고 0건을 의미하지 않습니다.'));
     abody.append(button('사건 조사 화면 열기',()=>showView('records')));
     activity.append(abody);add(cols,conn,activity);page.append(cols);
-    const agent=panel('Endpoint telemetry','Windows 실측 기록은 수동 JSON 입력으로 분리됩니다.','kv2-wide');
+    const agent=panel('Endpoint telemetry','로컬 Agent가 저장한 실제 Windows 측정 기록을 표시합니다.','kv2-wide');
     const agentBody=node('div','kv2-agent');
     add(agentBody,node('div','kv2-agent-symbol','▣'));
     const info=node('div','kv2-agent-info');
     add(info,node('strong','','PC 상태 · Windows 로그 기록'),node('p','','실제 측정 파일을 불러오면 CPU·메모리·디스크 및 Windows 연결 기록을 확인할 수 있습니다. 자동 실시간 수집은 아닙니다.'));
     add(agentBody,info,button('PC 측정 화면 열기',()=>openLegacy('protection','student-identity')));
-    agent.append(agentBody);page.append(agent);
+    agent.append(agentBody);renderEndpointSnapshot(agent);page.append(agent);
   }
   function renderApps(page) {
     buildHero(page,'ZERO TRUST / APPLICATION ACCESS','ZTNA Access Control','현재 신원에 허용된 업무 앱을 조회하고 원천 엔진에 접근 판정을 요청합니다.',[
@@ -1648,6 +1705,83 @@ else keshevInitConsole();
     db.append(node('p','kv2-hint','현재 화면은 정책을 자동으로 허용하거나 차단하지 않습니다.'));
     decision.append(db);add(cols,list,decision);page.append(cols);
   }
+  // Phase 4 Windows audit-rule alerts: separate from source-validated XDR incidents.
+  // Phase 5 investigation archive is independent from the central XDR event feed.
+  function renderLocalInvestigationHistory(page){
+    const section=panel('로컬 보안 사건 조사 · 이력','Windows Security 규칙 경보만 기록 · 중앙 XDR 사건과 별개','kv5-investigation-panel');
+    const body=node('div','kv2-panel-body');section.append(body);page.append(section);
+    let seq=0;
+    async function update(){
+      const id=++seq;
+      try{
+        const response=await fetch('/api/endpoint/investigations',{method:'GET',cache:'no-store',credentials:'same-origin',headers:{Accept:'application/json'}});
+        const json=await response.json();if(!response.ok||json?.ok!==true)throw Error('API_UNAVAILABLE');
+        if(id!==seq||!document.contains(section))return;
+        const d=json.data||{};body.replaceChildren();
+        body.append(node('p','kv2-hint',`이력 ${d.historyCount??0}건 · 새로 저장 ${d.added??0}건 · 원본 수집 ${d.sourceStatus||'확인 불가'} · 최신성 ${d.sourceFreshness||'확인 불가'}`));
+        if(d.status!=='ok'){body.append(empty('사건 이력 조회 불가',String(d.reason||'저장소를 확인하세요.')));return;}
+        if(d.historyCapture!=='active')body.append(node('p','kv4-warning','현재 Security 로그 수집이 최신 상태가 아닙니다. 기존 사건 이력만 표시합니다.'));
+        body.append(node('p','kv2-hint','이력은 이 페이지가 API를 조회할 때만 기록됩니다. 수집기 단독 실행 중의 모든 사건을 영구 보존하지는 않습니다.'));
+        const alerts=Array.isArray(d.records)?d.records:[];
+        if(!alerts.length){body.append(empty('기록된 로컬 탐지 사건 없음','실제 규칙 일치 이벤트가 수집될 때 기록됩니다. 가상 경보는 생성하지 않습니다.'));return;}
+        const list=node('div','kv5-history-list');
+        for(const record of alerts){
+          const item=node('details','kv5-case');
+          const summary=node('summary','kv5-case-summary');
+          summary.append(node('strong','',String(record.rule||'RULE')));
+          summary.append(node('span',`kv4-level kv4-${record.severity==='high'?'high':record.severity==='medium'?'medium':'info'}`,String(record.severity||'info').toUpperCase()));
+          summary.append(node('span','kv5-when',format(record.at)));
+          item.append(summary);
+          const detail=node('div','kv5-case-detail');
+          for(const [label,value] of [['탐지 근거',record.reason],['출처','Windows Security 감사 로그'],['이벤트 ID',record.eventId],['레코드 ID',record.recordId],['증거 레코드',Array.isArray(record.evidenceRecordIds)?record.evidenceRecordIds.join(', '):'없음'],['처음 기록',record.firstSeenAt?format(record.firstSeenAt):'확인 불가'],['사건 식별자',record.id]]){
+            const line=node('div','kv5-detail-line');line.append(node('span','',label),node('span','',String(value??'—')));detail.append(line);
+          }
+          detail.append(node('p','kv2-hint','이 기록은 탐지 규칙 매칭 근거이며 실제 침해 확정이나 자동 차단 기록이 아닙니다.'));
+          item.append(detail);list.append(item);
+        }
+        body.append(list);
+      }catch{if(id===seq&&document.contains(section)){body.replaceChildren(empty('사건 이력 API 조회 실패','로컬 서버 또는 사건 이력 파일 접근 상태를 확인하세요.'));}}
+    }
+    section.append(button('사건 이력 다시 읽기',()=>update()));update();
+    const timer=setInterval(()=>{if(!document.contains(section)){clearInterval(timer);return;}if(document.visibilityState==='visible')update();},60000);
+  }
+
+  function renderLocalSecurityAlerts(page){
+    const section=panel('Windows 보안 탐지 (로컬)','Windows Security 감사 로그의 규칙 매칭 결과 · 중앙 XDR 사건과 별개','kv4-security-panel');
+    const body=node('div','kv2-panel-body');section.append(body);page.append(section);
+    let runId=0;
+    async function update(){
+      const seq=++runId;
+      body.replaceChildren(node('p','kv2-hint','Windows 보안 감사 기록을 조회하고 있습니다…'));
+      try{
+        const response=await fetch('/api/endpoint/security',{method:'GET',cache:'no-store',credentials:'same-origin',headers:{Accept:'application/json'}});
+        const json=await response.json();
+        if(!response.ok||json?.ok!==true)throw Error('API_UNAVAILABLE');
+        if(seq!==runId||!document.contains(section))return;
+        const data=json.data||{};body.replaceChildren();
+        const status=node('p','kv2-hint',`수집 상태: ${data.status||'unavailable'} · 측정: ${data.collectedAt?format(data.collectedAt):'없음'} · 최신성: ${data.freshness||'확인 불가'}`);
+        body.append(status);
+        if(data.status!=='ok'){
+          body.append(empty('보안 감사 로그를 조회할 수 없습니다',`사유: ${data.reason||'확인 불가'} · 관리자 권한이나 감사 정책 상태를 확인하세요. 설정은 변경하지 않습니다.`));return;
+        }
+        if(data.freshness!=='recent')body.append(node('p','kv4-warning','측정값이 오래됐거나 시각을 검증할 수 없습니다. 현재 안전 상태로 해석하지 마세요.'));
+        body.append(node('p','kv2-hint',`조회된 대상 이벤트 ${data.scannedEvents??'—'}건${data.limited?' (최대 300건 제한)':''} · 규칙 탐지 ${(data.alerts||[]).length}건 · 실제 침해 확정 아님`));
+        if(!Array.isArray(data.alerts)||!data.alerts.length){body.append(empty('규칙에 해당하는 이벤트 없음','감사 설정·수집 범위가 충분하다는 뜻이나 보안 사고가 없다는 뜻은 아닙니다.'));return;}
+        const list=node('div','kv4-alert-list');
+        for(const e of data.alerts){
+          const entry=node('div','kv4-alert');
+          const text=node('div','kv4-alert-text');
+          add(text,node('strong','',String(e.rule||'RULE')),node('span','',String(e.reason||'')),node('small','',`${format(e.at)} · Event ID ${e.eventId} · Record ${e.recordId} · 근거 ${Array.isArray(e.evidenceRecordIds)?e.evidenceRecordIds.join(', '):'없음'}`));
+          add(entry,node('span',`kv4-level kv4-${e.severity==='high'?'high':e.severity==='medium'?'medium':'info'}`,String(e.severity||'info').toUpperCase()),text);list.append(entry);
+        }
+        body.append(list);
+      }catch{if(seq===runId&&document.contains(section)){body.replaceChildren(empty('보안 탐지 조회 실패','서버 API 연결 상태와 Security 로그 수집 결과를 확인하세요.'))}}
+    }
+    section.append(button('보안 탐지 새로 읽기',()=>update()));
+    update();
+    const timer=setInterval(()=>{if(!document.contains(section)){clearInterval(timer);return;}if(document.visibilityState==='visible')update();},60000);
+  }
+
   function renderRecords(page) {
     buildHero(page,'EXTENDED DETECTION & RESPONSE','XDR Incident Center','사건의 출처, 규칙, 근거와 처리 상태를 확인합니다. Windows 이벤트 로그는 XDR 탐지로 집계하지 않습니다.',[
       {text:'기존 AI·조치 기능 열기',run:()=>openLegacy('records','records'),primary:true}
@@ -1691,6 +1825,8 @@ else keshevInitConsole();
       });drawDetail();
     }
     add(board,list,detail);page.append(board);drawRows();
+    renderLocalSecurityAlerts(page);
+    renderLocalInvestigationHistory(page);
     const footer=panel('데이터 출처 안내','신뢰할 수 있는 결과만 합산');
     const body=node('div','kv2-panel-body kv2-source-note');body.textContent='XDR 사건은 서버에서 검증된 본인 범위 기록만 보여줍니다. Windows 시스템 이벤트는 별도의 측정 파일이며 탐지 건수나 위협 심각도로 간주하지 않습니다.';
     add(body,button('Windows 기록 확인',()=>openLegacy('records','student-events')));footer.append(body);page.append(footer);

@@ -1,5 +1,8 @@
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
+import {readLocalEndpointTelemetry} from './endpoint/local-telemetry.mjs';
+import {readLocalSecurityAlerts} from './endpoint/security-alerts.mjs';
+import {readLocalInvestigations} from './endpoint/investigations.mjs';
 import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
@@ -368,6 +371,20 @@ export function createOnServer(serverOptions={}) {
       if(url.search)throw engineError('QUERY_REJECTED','지원하지 않는 요청입니다.',400);
       if(url.pathname.startsWith('/api/')&&req.headers['sec-fetch-site']==='cross-site')throw engineError('ORIGIN_REJECTED','');
       if(req.method==='POST'&&req.headers.origin!==`http://${host}`)throw engineError('ORIGIN_REJECTED','앱 화면에서 다시 요청하세요.',403);
+      // LOCAL endpoint telemetry; independent of disconnected SDP/XDR mode.
+      if(req.method==='GET' && url.pathname==='/api/endpoint/local'){
+        const data=await bounded(()=>readLocalEndpointTelemetry());
+        send(200,{ok:true,data});return;
+      }
+      // Separate read-only local Windows audit detections; does not claim connected XDR.
+      if(req.method==='GET' && url.pathname==='/api/endpoint/security'){
+        const data=await bounded(()=>readLocalSecurityAlerts());
+        send(200,{ok:true,data});return;
+      }
+      if(req.method==='GET' && url.pathname==='/api/endpoint/investigations'){
+        const data=await bounded(()=>readLocalInvestigations());
+        send(200,{ok:true,data});return;
+      }
       if(url.pathname.startsWith('/api/native-login/')){
         const kind=url.pathname.slice('/api/native-login/'.length);
         if(req.method!=='POST'||!['start','status','redeem','current','cancel'].includes(kind)){send(404,{ok:false,error:{code:'NOT_FOUND',message:'지원하지 않는 주소입니다.',retryable:false}});return;}
