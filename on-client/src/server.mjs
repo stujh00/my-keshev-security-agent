@@ -330,7 +330,7 @@ export function createOnServer(serverOptions={}) {
     let supportDeadline;
     const disconnect=()=>lifetime.abort();
     res.once('close',disconnect);req.once('aborted',disconnect);
-    const aiDeadlineRoute=req.method==='POST'&&['/api/ai/check','/api/ai/explain','/api/learner-support/gpt'].includes(req.url);
+    const aiDeadlineRoute=req.method==='POST'&&['/api/ai/check','/api/ai/explain','/api/learner-support/gpt','/api/endpoint/ai-analysis'].includes(req.url);
     const requestLimit=aiDeadlineRoute?aiRequestTimeoutMs:requestTimeoutMs;
     const requestTimer=setTimeout(()=>{requestTimedOut=true;lifetime.abort();},requestLimit);
     if(aiDeadlineRoute&&Number.isSafeInteger(aiTimeoutMs)&&aiTimeoutMs>0&&aiTimeoutMs<=420000){

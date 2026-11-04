@@ -13,7 +13,7 @@ const UNVERIFIED_MESSAGE = '서버 응답 형식을 확인할 수 없습니다(�
 const MODE_LABELS = {
   connected: '연결됨',
   demo: '예제 데이터(demo) · 실제 연결 아님',
-  disconnected: '연결 없음',
+  disconnected: 'ZTNA 서버 미연결',
   unknown: '연결 상태 확인 불가',
 };
 
@@ -1437,7 +1437,7 @@ function keshevInitConsole() {
   function updateSummary() {
     const mode = keshevById('mode-badge')?.dataset.mode || 'unknown';
     const known = ['connected','demo'].includes(mode);
-    engine.number.textContent = ({connected:'연결 보고됨',demo:'예제 모드',disconnected:'연결 없음',unknown:'확인 불가',loading:'확인 중'})[mode] || '확인 불가';
+    engine.number.textContent = ({connected:'연결 보고됨',demo:'예제 모드',disconnected:'ZTNA 서버 미연결',unknown:'확인 불가',loading:'확인 중'})[mode] || '확인 불가';
     engine.card.dataset.status = mode;
     const user = keshevById('identity-user')?.textContent || '';
     const device = keshevById('identity-device')?.textContent || '';
@@ -1590,6 +1590,31 @@ else keshevInitConsole();
       add(wrapper,node('span','',label),node('strong','',value));
       return wrapper;
     };
+    // Phase 13.4: actual one-snapshot gauges, never simulated history.
+    function usageGauge(label, percent, caption, freshness, kind) {
+      const valid = typeof percent === 'number' && Number.isFinite(percent) && percent >= 0 && percent <= 100;
+      const level = !valid ? 'unknown' : (kind === 'disk'
+        ? (percent >= 90 ? 'high' : percent >= 80 ? 'warn' : 'normal')
+        : kind === 'memory' ? (percent >= 85 ? 'high' : percent >= 70 ? 'warn' : 'normal')
+        : (percent >= 85 ? 'high' : percent >= 60 ? 'warn' : 'normal'));
+      const display = valid ? percent.toFixed(1) + '%' : '확인 불가';
+      const state = !valid ? '측정 불가' : level === 'high' ? '높음' : level === 'warn' ? '주의' : '정상 범위';
+      const card = node('div', 'kv134-gauge-card kv134-' + level);
+      const title = node('div', 'kv134-gauge-title');
+      add(title, node('strong', '', label), node('span', 'kv134-gauge-state', state));
+      const gauge = node('div', 'kv134-gauge');
+      gauge.setAttribute('role', 'img');
+      gauge.setAttribute('aria-label', label + ' ' + display);
+      gauge.style.setProperty('--kv134-deg', valid ? (percent * 3.6) + 'deg' : '0deg');
+      add(gauge, node('div', 'kv134-gauge-core', display));
+      const track = node('div', 'kv134-usage-track');
+      const bar = node('div', 'kv134-usage-bar');
+      bar.style.width = valid ? percent + '%' : '0%';
+      track.append(bar);
+      add(card, title, gauge, track, node('p', 'kv134-gauge-caption', caption),
+        node('small', 'kv134-gauge-time', '수집: ' + freshness));
+      return card;
+    }
     const fmtPercent=v=>typeof v==='number'?v.toFixed(1)+'%':'확인 불가';
     const fmtCount=v=>Number.isInteger(v)?v+'건':'확인 불가';
     const fmtTime=v=>format(v);
@@ -1606,10 +1631,18 @@ else keshevInitConsole();
       }catch{if(thisRun===runId){summary.replaceChildren();stateNode.textContent='측정값을 조회하지 못했습니다. 서버 재시작 및 Agent 수집 여부를 확인하세요.';}return;}
       if(thisRun!==runId)return;
       const pc=result.pc,cn=result.connection;
+      const pcReady = pc.status === 'ok';
+      const pcFresh = pcReady ? fmtTime(pc.collectedAt) : '미수집';
+      const diskUsed = pcReady && typeof pc.diskFreePercent === 'number'
+        ? Math.max(0, Math.min(100, 100 - pc.diskFreePercent)) : null;
       summary.replaceChildren(
-        cell('CPU 사용률',pc.status==='ok'?fmtPercent(pc.cpuPercent):'조회 불가'),
-        cell('메모리 사용률',pc.status==='ok'?fmtPercent(pc.memoryPercent):'조회 불가'),
-        cell('C: 여유 용량',pc.status==='ok'&&typeof pc.diskFreeGB==='number'?pc.diskFreeGB.toFixed(1)+' GB':'조회 불가'),
+        usageGauge('CPU 사용률', pcReady ? pc.cpuPercent : null,
+          'Windows 실측 · 현재 저장된 기록', pcFresh, 'cpu'),
+        usageGauge('메모리 사용률', pcReady ? pc.memoryPercent : null,
+          'Windows 실측 · 현재 저장된 기록', pcFresh, 'memory'),
+        usageGauge('C: 디스크 사용률', diskUsed,
+          pcReady && typeof pc.diskFreeGB === 'number'
+            ? '여유 공간 ' + pc.diskFreeGB.toFixed(1) + ' GB' : '여유 공간 확인 불가', pcFresh, 'disk'),
         cell('네트워크 어댑터',cn.status==='ok'&&cn.networkStatus==='ok'?cn.adapters.filter(x=>x.status==='Up').length+'개 Up':'조회 불가'),
         cell('Windows 방화벽',cn.status==='ok'&&cn.firewallStatus==='ok'?cn.firewall.filter(x=>x.enabled===true).length+'/'+cn.firewall.length+' 활성':'조회 불가'),
         cell('System 오류 / 24h',cn.status==='ok'?fmtCount(cn.system.error):'조회 불가'),
@@ -1669,6 +1702,36 @@ else keshevInitConsole();
   }
 
   // Phase 13: optional local AI. Never calls the model without an explicit click.
+  // KESHEV_PHASE134_UI_FINISH_V1 - DOM-only formatting, no innerHTML.
+  function displayAiAnalysis(result, model, analysis) {
+    result.replaceChildren();
+    const heading=document.createElement('strong');
+    heading.className='kv134-ai-title';
+    heading.textContent='로컬 AI 참고 의견 · '+String(model||'모델 확인 불가');
+    result.append(heading);
+    let list=null;
+    for(const raw of String(analysis||'분석 내용 없음').replace(/\r\n?/g,'\n').split('\n').slice(0,220)){
+      const line=raw.trim();
+      if(!line){list=null;continue;}
+      const bullet=line.match(/^[-*]\s+(.+)$/);
+      if(bullet){
+        if(!list){list=document.createElement('ul');list.className='kv134-ai-list';result.append(list);}
+        const item=document.createElement('li');
+        item.textContent=bullet[1].replace(/\*\*(.*?)\*\*/g,'$1');
+        list.append(item);continue;
+      }
+      list=null;
+      const h=line.match(/^#{1,4}\s*(.+)$/);
+      const el=document.createElement(h?'h4':'p');
+      el.className=h?'kv134-ai-subhead':'kv134-ai-paragraph';
+      el.textContent=(h?h[1]:line).replace(/\*\*(.*?)\*\*/g,'$1');
+      result.append(el);
+    }
+    const note=document.createElement('small');note.className='kv134-ai-note';
+    note.textContent='AI 의견은 검증되지 않았습니다. 원본 이벤트와 대조하세요. 자동 조치 없음.';
+    result.append(note);
+  }
+
   function phase13AddAiControls(details,event){
     const panel=document.createElement('section');panel.className='kv13-ai';
     const title=document.createElement('strong');title.textContent='로컬 AI 사건 해석 (선택 기능)';panel.append(title);
@@ -1696,7 +1759,7 @@ else keshevInitConsole();
         const response=await res.json();
         if(!panel.isConnected)return;
         if(!res.ok||response.ok!==true){result.textContent=`AI 분석 불가: ${response?.error?.code||'REQUEST_FAILED'}`;return;}
-        result.textContent=`[로컬 AI 의견 · ${response.data.model}]\n${response.data.analysis}\n※ 검증되지 않은 AI 의견입니다. 원본 이벤트와 대조하세요.`;
+        displayAiAnalysis(result, response.data.model, response.data.analysis);
       }catch{if(panel.isConnected)result.textContent='AI 분석 요청에 실패했습니다. 기존 조사 근거에는 영향이 없습니다.';}
       finally{if(panel.isConnected)action.disabled=false;}
     });
@@ -1750,7 +1813,7 @@ else keshevInitConsole();
   function appendPhase9Cards(body,data){
     const defender=data?.defender||{},card=node('div','kv6-agent-card kv9-defender');
     card.append(node('strong','','Microsoft Defender · 로컬 감사 이벤트'));
-    card.append(node('span','',`조회 상태: ${defender.status||'unavailable'} · 기록 최신성: ${defender.freshness||'unknown'}`));
+    card.append(node('span','',`조회 상태: ${defender.status==='ok'?'정상':'확인 불가'} · 기록 최신성: ${defender.freshness==='recent'?'최신':defender.freshness==='stale'?'지연':'확인 불가'}`));
     card.append(node('small','',`마지막 수집: ${defender.collectedAt?format(defender.collectedAt):'기록 없음'}`));
     if(defender.status!=='ok')card.append(node('small','kv9-warning',`Defender 로그 조회 불가: ${defender.reason||'원인 불명'} (탐지 0건이 아님)`));
     else {
@@ -1804,7 +1867,9 @@ else keshevInitConsole();
     const actions=node('div','kv6-agent-actions');panelRoot.append(actions);
     area.append(panelRoot);
     let seq=0;
-    const labels={pc:'PC 리소스',connection:'네트워크 / 방화벽',security:'Windows Security'};
+    const labels={pc:'PC 리소스',connection:'네트워크 / 방화벽',security:'Windows Security (관리자 권한 필요)'};
+    const statusLabel=v=>({ok:'수집 정상',error:'수집 오류',unavailable:'확인 불가'})[v]||'확인 불가';
+    const freshnessLabel=v=>({recent:'최신',stale:'지연',unverifiable:'확인 불가'})[v]||'확인 불가';
     async function update(){
       const id=++seq;
       try{
@@ -1815,8 +1880,8 @@ else keshevInitConsole();
         for(const key of ['pc','connection','security']){
           const value=d.collectors?.[key]||{},card=node('div','kv6-agent-card');
           card.append(node('strong','',labels[key]));
-          card.append(node('span','',`수집 상태: ${value.status||'unavailable'}`));
-          card.append(node('span','',`기록 최신성: ${value.freshness||'unverifiable'}`));
+          card.append(node('span','',`수집 상태: ${statusLabel(value.status)}`));
+          card.append(node('span','',`기록 최신성: ${freshnessLabel(value.freshness)}`));
           card.append(node('span','',`마지막 수집: ${value.collectedAt?format(value.collectedAt):'미확인'}`));
           card.append(node('small','',`수집 기록 상태: ${value.reason?' · '+value.reason:'최근성만 표시'}`));
           addSupervisorDetail(card,key==='security'?'security':'pc',d.supervisor);

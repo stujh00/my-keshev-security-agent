@@ -482,3 +482,31 @@ body.keshev-console-v2 {
 .kv13-ai button:disabled{opacity:.5;cursor:not-allowed}
 .kv13-result{white-space:pre-wrap;overflow-wrap:anywhere;color:#dfebf1;line-height:1.65;font-size:13px}
 @media(min-width:980px){.kv10-investigation .kv10-event-list{max-height:290px}.kv10-details{font-size:14px}}
+
+/* Phase 13.4 — endpoint gauges, real saved measurements only */
+.keshev-console-v2 .kv2-endpoint-grid{grid-template-columns:repeat(12,minmax(0,1fr));align-items:stretch}
+.keshev-console-v2 .kv134-gauge-card{grid-column:span 4;min-width:0;display:flex;flex-direction:column;align-items:center;gap:13px;padding:20px 14px;border:1px solid #32516c;border-radius:15px;background:linear-gradient(150deg,#142f46 0%,#0c1d31 100%);box-shadow:0 8px 22px rgba(0,0,0,.16);--kv134-tone:#45d7c2}
+.keshev-console-v2 .kv134-warn{--kv134-tone:#f3ba61}
+.keshev-console-v2 .kv134-high{--kv134-tone:#fa8288}
+.keshev-console-v2 .kv134-unknown{--kv134-tone:#6b879b}
+.keshev-console-v2 .kv134-gauge-title{width:100%;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;color:#e8f7ff}
+.keshev-console-v2 .kv134-gauge-title strong{font-size:13px}
+.keshev-console-v2 .kv134-gauge-state{font-size:11px;color:var(--kv134-tone);border:1px solid currentColor;padding:3px 7px;border-radius:999px}
+.keshev-console-v2 .kv134-gauge{width:142px;height:142px;max-width:100%;aspect-ratio:1;border-radius:50%;background:conic-gradient(var(--kv134-tone) 0deg var(--kv134-deg),#29415a var(--kv134-deg) 360deg);display:grid;place-items:center;box-shadow:0 0 22px rgba(37,202,181,.08)}
+.keshev-console-v2 .kv134-gauge-core{width:79%;height:79%;background:#0b2033;border-radius:50%;display:grid;place-items:center;color:#f1fcff;font-size:25px;font-weight:800;letter-spacing:-.04em;text-align:center}
+.keshev-console-v2 .kv134-usage-track{width:100%;height:7px;border-radius:99px;overflow:hidden;background:#2b425a}
+.keshev-console-v2 .kv134-usage-bar{height:100%;border-radius:99px;background:var(--kv134-tone);transition:width .45s ease}
+.keshev-console-v2 .kv134-gauge-caption{margin:0;font-size:12px;color:#c4dcf0;text-align:center;overflow-wrap:anywhere}
+.keshev-console-v2 .kv134-gauge-time{font-size:11px;color:#90b2ca;text-align:center}
+.keshev-console-v2 .kv2-endpoint-cell{grid-column:span 3}
+@media(max-width:1050px){.keshev-console-v2 .kv134-gauge-card{grid-column:span 6}.keshev-console-v2 .kv2-endpoint-cell{grid-column:span 6}}
+@media(max-width:650px){.keshev-console-v2 .kv134-gauge-card,.keshev-console-v2 .kv2-endpoint-cell{grid-column:span 12}}
+@media(prefers-reduced-motion:reduce){.keshev-console-v2 .kv134-usage-bar{transition:none}}
+
+/* KESHEV_PHASE134_UI_FINISH_V1 */
+.keshev-console-v2 .kv134-ai-title{display:block;margin:10px 0;color:#82e8d7;font-size:14px}
+.keshev-console-v2 .kv134-ai-subhead{margin:16px 0 8px;color:#e4f7ff;font-size:13px}
+.keshev-console-v2 .kv134-ai-paragraph{margin:6px 0;line-height:1.65;color:#d5e9f6;white-space:pre-wrap;overflow-wrap:anywhere}
+.keshev-console-v2 .kv134-ai-list{margin:8px 0 12px;padding-left:20px;line-height:1.7;color:#d5e9f6}
+.keshev-console-v2 .kv134-ai-list li{margin:4px 0;overflow-wrap:anywhere}
+.keshev-console-v2 .kv134-ai-note{display:block;margin-top:15px;border-top:1px solid #355269;padding-top:9px;color:#e0b970}
