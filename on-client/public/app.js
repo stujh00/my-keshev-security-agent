@@ -1636,6 +1636,203 @@ else keshevInitConsole();
     },60000);
   }
 
+  // Phase 6: snapshot health is not process liveness, no start/stop privileges.
+  // Phase 7: process observation is sampled and distinct from collection freshness.
+  // Phase 7.2: heartbeat evidence is not a liveness claim.
+  // Phase 9: Defender Operational events and resource warnings are separate from central XDR.
+  // Phase 10: local-only event investigation. Does not write back to incident history.
+  // KESHEV Phase 12: evidence-based triage, NOT a threat verdict.
+  function phase12Priority(event){
+    const id=event&&Number(event.eventId);
+    const result=(level,reason)=>({level,reason,disclaimer:'조사 우선순위이며 악성 행위 또는 침해 확정이 아닙니다.'});
+    if(id===1116)return result('우선 조사','Defender 위협 탐지 이벤트(1116)가 기록됨. 탐지 상세와 조치 결과를 확인하세요.');
+    if(id===1118||id===1119)return result('우선 조사','Defender 보호 조치 실패/중요 오류 이벤트가 기록됨. 실제 조치 결과 확인이 필요합니다.');
+    if(id===1117)return result('검토 필요','Defender 보호 조치 이벤트가 기록됨. 탐지 및 결과 로그와 대조하세요.');
+    if(id!==5007)return result('근거 부족','지원되지 않는 유형입니다.');
+    const oldValue=typeof event.oldValue==='string'?event.oldValue:'';
+    const newValue=typeof event.newValue==='string'?event.newValue:'';
+    if(!oldValue||!newValue)return result('근거 부족','5007 설정 변경 원본의 변경 전·후 값을 둘 다 확보하지 못했습니다.');
+    // Only key names and explicit values may affect classification. Never treat arbitrary text as an alert.
+    const separator=newValue.lastIndexOf(' = ');
+    const path=(separator>=0?newValue.slice(0,separator):'').toLowerCase();
+    const value=(separator>=0?newValue.slice(separator+3).trim():'').toLowerCase();
+    if(!path||!value)return result('검토 필요','원본 변경값의 키/값 구분을 확정할 수 없습니다.');
+    if(/(?:\\|^)disablerealtimemonitoring$/.test(path) && /^(?:0x0*1|1|true)$/.test(value))
+      return result('우선 조사','실시간 보호 비활성화 관련 구성값이 활성화된 것으로 보입니다. Defender 현재 보호 상태를 직접 확인하세요.');
+    if(/(?:\\|^)disablebehaviormonitoring$/.test(path) && /^(?:0x0*1|1|true)$/.test(value))
+      return result('우선 조사','동작 모니터링 비활성화 관련 구성값이 활성화된 것으로 보입니다. Defender 현재 보호 상태를 확인하세요.');
+    if(/\\exclusions(?:\\|$)/.test(path))
+      return result('검토 필요','Defender 검사 제외 관련 설정 변경입니다. 허용된 운영 변경인지 검토하세요.');
+    if(/\\ux configuration\\/.test(path))
+      return result('일반 변경 기록','Defender UX 구성 변경입니다. 이 기록만으로 보안 보호 기능 변경은 확인되지 않습니다.');
+    return result('검토 필요','Defender 구성값 변경을 확인했습니다. 정확한 설정 항목과 변경 목적을 조사하세요.');
+  }
+
+  // Phase 13: optional local AI. Never calls the model without an explicit click.
+  function phase13AddAiControls(details,event){
+    const panel=document.createElement('section');panel.className='kv13-ai';
+    const title=document.createElement('strong');title.textContent='로컬 AI 사건 해석 (선택 기능)';panel.append(title);
+    const note=document.createElement('small');note.textContent='선택한 Windows Defender 기록만 로컬 Ollama에 보냅니다. 설정되지 않은 경우 AI 분석을 수행하지 않습니다. AI 의견은 침해 확정이나 자동 조치가 아닙니다.';panel.append(note);
+    const state=document.createElement('small');state.textContent='로컬 모델 상태 확인 중';panel.append(state);
+    const deployment=document.createElement('small');deployment.className='kv131-deployment';
+    deployment.textContent='배포 환경: 로컬 전용 · 중앙 관리 서버 미연결';panel.append(deployment);
+    fetch('/api/endpoint/deployment',{cache:'no-store'}).then(r=>r.json()).then(j=>{
+      if(!panel.isConnected)return;
+      const d=j?.data||{};
+      deployment.textContent=d.mode==='local'?'배포 환경: 로컬 · 중앙 관리 연결 미구현 · AI 로컬 전용':('배포 환경 설정 확인 필요: '+(d.reason||'INVALID'));
+    }).catch(()=>{if(panel.isConnected)deployment.textContent='배포 환경 조회 실패 · 로컬 AI 분석은 연결 상태를 확인하세요.';});
+    const action=document.createElement('button');action.type='button';action.textContent='선택한 이벤트 AI 분석';action.disabled=true;panel.append(action);
+    const result=document.createElement('div');result.className='kv13-result';result.setAttribute('aria-live','polite');panel.append(result);details.append(panel);
+    fetch('/api/endpoint/ai-status',{cache:'no-store'}).then(r=>r.json()).then(json=>{
+      if(!panel.isConnected)return;
+      const s=json?.data||{};
+      if(s.available===true){state.textContent=`로컬 AI 준비됨 · ${s.model}`;action.disabled=false;}
+      else{state.textContent=`AI 분석 사용 불가: ${s.reason||'NOT_AVAILABLE'} · 기존 규칙 기반 분석은 계속 이용할 수 있습니다.`;}
+    }).catch(()=>{if(panel.isConnected)state.textContent='AI 상태 조회 실패 · 분석은 실행되지 않았습니다.';});
+    action.addEventListener('click',async()=>{
+      action.disabled=true;result.textContent='로컬 모델에 선택한 사건 근거를 요청하고 있습니다. 자동 조치는 하지 않습니다.';
+      try{
+        const res=await fetch('/api/endpoint/ai-analysis',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({eventId:event.eventId,recordId:event.recordId}),cache:'no-store'});
+        const response=await res.json();
+        if(!panel.isConnected)return;
+        if(!res.ok||response.ok!==true){result.textContent=`AI 분석 불가: ${response?.error?.code||'REQUEST_FAILED'}`;return;}
+        result.textContent=`[로컬 AI 의견 · ${response.data.model}]\n${response.data.analysis}\n※ 검증되지 않은 AI 의견입니다. 원본 이벤트와 대조하세요.`;
+      }catch{if(panel.isConnected)result.textContent='AI 분석 요청에 실패했습니다. 기존 조사 근거에는 영향이 없습니다.';}
+      finally{if(panel.isConnected)action.disabled=false;}
+    });
+  }
+
+  function appendPhase10Detail(card,defender){
+    const section=document.createElement('div'); section.className='kv10-investigation';
+    const heading=document.createElement('strong');heading.textContent='Defender 이벤트 상세 조사';section.append(heading);
+    const note=document.createElement('small');
+    note.textContent='원본에서 보존된 이벤트 ID · Record ID · 시각만 조사합니다. 변경 대상·행위자·악성 여부는 이 데이터만으로 판단할 수 없습니다.';
+    section.append(note);
+    if(defender.status!=='ok'){
+      const bad=document.createElement('span');bad.textContent='수집 상태를 확인할 수 없어 조사 결과를 표시하지 않습니다.';section.append(bad);card.append(section);return;
+    }
+    const entries=Array.isArray(defender.events)?defender.events:[];
+    if(defender.limited){const limited=document.createElement('small');limited.className='kv9-warning';limited.textContent='조회 제한 적용: 목록에 포함되지 않은 이벤트가 있을 수 있습니다.';section.append(limited);}
+    if(defender.freshness!=='recent'){const stale=document.createElement('small');stale.className='kv9-warning';stale.textContent='현재 수집 기록은 최신이 아닙니다. 아래 내용은 저장된 과거 기록입니다.';section.append(stale);}
+    const bursts=[];
+    const config=entries.filter(e=>e.eventId===5007).slice().sort((a,b)=>Date.parse(a.at)-Date.parse(b.at));
+    let group=[];
+    const pushGroup=()=>{if(group.length>=3)bursts.push(group.slice());group=[];};
+    for(const e of config){if(group.length&&Date.parse(e.at)-Date.parse(group[group.length-1].at)>600000)pushGroup();group.push(e);}
+    pushGroup();
+    const summary=document.createElement('small');summary.textContent=`표시 가능한 기록 ${entries.length}건 · 10분 내 연속 설정 변경(3건 이상) 구간 ${bursts.length}개`;
+    section.append(summary);
+    const controls=document.createElement('div');controls.className='kv10-controls';
+    const search=document.createElement('input');search.type='search';search.placeholder='이벤트 ID 또는 Record ID 검색';search.setAttribute('aria-label','이벤트 ID 또는 Record ID 검색');
+    const select=document.createElement('select');select.setAttribute('aria-label','Defender 이벤트 유형 필터');
+    for(const [val,label] of [['','모든 유형'],['5007','설정 변경 5007'],['1116','위협 탐지 1116'],['1117','조치 1117'],['1118','조치 실패 1118'],['1119','중요 조치 1119']]){const op=document.createElement('option');op.value=val;op.textContent=label;select.append(op);}
+    controls.append(search,select);section.append(controls);
+    const list=document.createElement('div');list.className='kv10-event-list';section.append(list);
+    const details=document.createElement('div');details.className='kv10-details';details.textContent='조사할 기록을 선택하세요.';section.append(details);
+    function draw(){
+      list.replaceChildren();details.textContent='조사할 기록을 선택하세요.';
+      const query=search.value.trim();const filtered=entries.filter(e=>(!select.value||String(e.eventId)===select.value)&&(!query||String(e.eventId).includes(query)||String(e.recordId).includes(query)));
+      if(!filtered.length){const empty=document.createElement('small');empty.textContent='필터와 일치하는 저장 기록이 없습니다.';list.append(empty);return;}
+      for(const e of filtered){
+        const btn=document.createElement('button');btn.type='button';btn.className='kv10-event';btn.textContent=`${e.eventId} · Record ${e.recordId} · ${e.at}`;
+        btn.addEventListener('click',()=>{
+          details.replaceChildren();
+          for(const [label,value] of [['이벤트 ID',e.eventId],['Record ID',e.recordId],['발생 시각',e.at],['분류',e.title||e.kind||'확인 불가'],['자료 출처','Windows Defender/Operational'],['이전 값',e.oldValue||'원본에 기록이 없거나 수집되지 않음'],['새 값',e.newValue||'원본에 기록이 없거나 수집되지 않음'],['조사 우선순위',phase12Priority(e).level],['우선순위 근거',phase12Priority(e).reason],['판정','구성 변경 감사 기록 · 악성 여부는 별도 조사 필요']]){
+            const line=document.createElement('div');line.textContent=`${label}: ${value}`;details.append(line);
+          }
+          phase13AddAiControls(details,e);
+        });list.append(btn);
+      }
+    }
+    search.addEventListener('input',draw);select.addEventListener('change',draw);draw();card.append(section);
+  }
+
+  function appendPhase9Cards(body,data){
+    const defender=data?.defender||{},card=node('div','kv6-agent-card kv9-defender');
+    card.append(node('strong','','Microsoft Defender · 로컬 감사 이벤트'));
+    card.append(node('span','',`조회 상태: ${defender.status||'unavailable'} · 기록 최신성: ${defender.freshness||'unknown'}`));
+    card.append(node('small','',`마지막 수집: ${defender.collectedAt?format(defender.collectedAt):'기록 없음'}`));
+    if(defender.status!=='ok')card.append(node('small','kv9-warning',`Defender 로그 조회 불가: ${defender.reason||'원인 불명'} (탐지 0건이 아님)`));
+    else {
+      const counts=defender.counts||{};
+      card.append(node('span','',`24시간 이벤트 · 탐지 ${counts.detection??0} · 조치 ${counts.action??0} · 실패 ${counts.action_failed??0} · 중요 조치 ${counts.action_critical??0} · 설정 변경 ${counts.configuration??0}`));
+      if(defender.limited)card.append(node('small','kv9-warning','최대 기록 수 제한으로 일부 이벤트만 조회됨'));
+      const events=Array.isArray(defender.events)?defender.events:[];
+      for(const e of events.slice(0,8))card.append(node('small','kv9-event',`${e.eventId} · ${e.title||'감사 이벤트'} · ${e.at?format(e.at):'시각 없음'} · Record ${e.recordId}`));
+      if(!events.length)card.append(node('small','','해당 이벤트 ID의 기록 없음 · 위협이 없다는 증거는 아닙니다.'));
+    }
+    appendPhase10Detail(card,defender);
+    card.append(node('small','','중앙 XDR 사건과 별개 · Windows Defender Operational 이벤트 근거만 표시'));
+    body.append(card);
+    const info=data?.operationalWarnings||{},health=node('div','kv6-agent-card kv9-health');
+    health.append(node('strong','','PC 운영 경고 · 보안 탐지와 분리'));
+    if(info.status!=='ok')health.append(node('small','kv9-warning','최근 PC 측정값 없음 · 현재 운영 경고 판단 불가'));
+    else if(!Array.isArray(info.warnings)||!info.warnings.length)health.append(node('small','','설정된 메모리·디스크 기준에 해당하는 운영 경고 없음'));
+    else for(const item of info.warnings.slice(0,5))health.append(node('span','kv9-warning',`${item.message}: ${item.value}${item.unit||''}`));
+    health.append(node('small','','메모리 90% 이상 / C: 여유 10% 미만 · 침해 판정이 아님'));
+    body.append(health);
+  }
+
+  function addHeartbeatDetail(card,key,heartbeats){
+    const kind=key==='security'?'security':'pc';
+    const info=heartbeats?.collectors?.[kind];
+    const line=node('small','kv72-heartbeat');
+    const state=info?.state;
+    if(state==='recent')line.textContent=`Heartbeat: 최근 수집 성공 · ${format(info.collectedAt)} · PID 기록 ${info.processId} (실행 여부 미확인)`;
+    else if(state==='problem')line.textContent=`Heartbeat: 수집 실패 · ${info.reason||'원인 미확인'} · ${info.collectedAt?format(info.collectedAt):'시각 미확인'}`;
+    else if(state==='stale')line.textContent=`Heartbeat: 기록 지연 · ${info.collectedAt?format(info.collectedAt):'시각 미확인'}`;
+    else line.textContent=`Heartbeat: 확인 불가 · ${info?.reason||'기록 없음'}`;
+    card.append(line);
+  }
+
+  function addSupervisorDetail(card,key,observer){
+    const info=observer?.state==='recent'?observer.collectors?.[key]:null;
+    const names={observed:'관측됨',not_observed:'관측되지 않음',unknown:'확인 불가'};
+    const line=node('small','kv7-process-state');
+    if(info){line.textContent=`실행 프로세스: ${names[info.state]||'확인 불가'}${info.state==='observed'?' ('+info.count+'개)':''} · 관측 시각 ${format(observer.collectedAt)}`;}
+    else if(observer?.state==='stale')line.textContent='실행 프로세스: 확인 불가 · Supervisor 기록이 오래됨';
+    else line.textContent='실행 프로세스: 확인 불가 · Supervisor 실행/결과 없음';
+    card.append(line);
+  }
+
+  function renderAgentOperations(area){
+    const panelRoot=node('section','kv6-agent-operations');
+    panelRoot.append(node('h3','','Agent 운영 상태 · 로컬'));
+    panelRoot.append(node('p','kv2-hint','수집 기록의 최신성을 확인합니다. 실행 중인 프로세스를 직접 검사하거나 제어하지 않습니다.'));
+    const body=node('div','kv6-agent-grid');panelRoot.append(body);
+    const hint=node('p','kv2-hint','조회 대기');panelRoot.append(hint);
+    const actions=node('div','kv6-agent-actions');panelRoot.append(actions);
+    area.append(panelRoot);
+    let seq=0;
+    const labels={pc:'PC 리소스',connection:'네트워크 / 방화벽',security:'Windows Security'};
+    async function update(){
+      const id=++seq;
+      try{
+        const res=await fetch('/api/endpoint/operations',{method:'GET',cache:'no-store',credentials:'same-origin',headers:{Accept:'application/json'}});
+        const json=await res.json();if(!res.ok||json?.ok!==true||json?.data?.source!=='local_measurement_files')throw Error('UNAVAILABLE');
+        if(id!==seq||!document.contains(panelRoot))return;
+        body.replaceChildren();const d=json.data;
+        for(const key of ['pc','connection','security']){
+          const value=d.collectors?.[key]||{},card=node('div','kv6-agent-card');
+          card.append(node('strong','',labels[key]));
+          card.append(node('span','',`수집 상태: ${value.status||'unavailable'}`));
+          card.append(node('span','',`기록 최신성: ${value.freshness||'unverifiable'}`));
+          card.append(node('span','',`마지막 수집: ${value.collectedAt?format(value.collectedAt):'미확인'}`));
+          card.append(node('small','',`수집 기록 상태: ${value.reason?' · '+value.reason:'최근성만 표시'}`));
+          addSupervisorDetail(card,key==='security'?'security':'pc',d.supervisor);
+          addHeartbeatDetail(card,key,d.heartbeats);
+          body.append(card);
+        }
+        appendPhase9Cards(body,d);
+        hint.textContent=`사건 이력: ${d.investigations?.count??'확인 불가'}건 · 60초마다 다시 읽기 · 실행 상태 판정 없음`;
+      }catch{
+        if(id===seq&&document.contains(panelRoot)){body.replaceChildren();hint.textContent='운영 상태 API 조회 실패 · 서버 실행 및 수집 파일을 확인하세요.';}
+      }
+    }
+    actions.append(button('Agent 상태 다시 읽기',()=>update()));update();
+    const timer=setInterval(()=>{if(!document.contains(panelRoot)){clearInterval(timer);return;}if(document.visibilityState==='visible')update();},60000);
+  }
+
   function renderHome(page) {
     buildHero(page,'SECURITY OPERATIONS / OVERVIEW','Security Overview','ZTNA 접근 상태, 엔드포인트 기록, XDR 조회 결과를 한곳에서 확인합니다.',[
       {text:'ZTNA 관리',run:()=>showView('apps')},{text:'XDR 조사',run:()=>showView('records'),primary:true}
@@ -1671,7 +1868,7 @@ else keshevInitConsole();
     const info=node('div','kv2-agent-info');
     add(info,node('strong','','PC 상태 · Windows 로그 기록'),node('p','','실제 측정 파일을 불러오면 CPU·메모리·디스크 및 Windows 연결 기록을 확인할 수 있습니다. 자동 실시간 수집은 아닙니다.'));
     add(agentBody,info,button('PC 측정 화면 열기',()=>openLegacy('protection','student-identity')));
-    agent.append(agentBody);renderEndpointSnapshot(agent);page.append(agent);
+    agent.append(agentBody);renderEndpointSnapshot(agent);renderAgentOperations(agent);page.append(agent);
   }
   function renderApps(page) {
     buildHero(page,'ZERO TRUST / APPLICATION ACCESS','ZTNA Access Control','현재 신원에 허용된 업무 앱을 조회하고 원천 엔진에 접근 판정을 요청합니다.',[

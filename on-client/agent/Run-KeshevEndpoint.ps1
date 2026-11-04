@@ -5,6 +5,7 @@ param(
   [switch]$Watch
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Write-KeshevHeartbeat.ps1')
 $measureDir = Join-Path $env:LOCALAPPDATA 'KeshevEndpoint\measurements'
 if (-not (Test-Path -LiteralPath $measureDir -PathType Container)) {
   New-Item -Path $measureDir -ItemType Directory -Force | Out-Null
@@ -31,10 +32,23 @@ function Collect-Once {
     Move-Item -LiteralPath $temp -Destination $latest -Force -ErrorAction Stop
     Write-Host ('Evidence: ' + $latest)
   }
+  # Phase 9: Defender collection runs with the ordinary PC collector, no new console.
+  try {
+    $defenderScript = Join-Path $PSScriptRoot 'Collect-KeshevDefender.ps1'
+    if (Test-Path -LiteralPath $defenderScript -PathType Leaf) {
+      & $defenderScript -OutputDirectory $measureDir
+    } else { Write-Warning 'KESHEV Defender collector missing' }
+  } catch { Write-Warning 'KESHEV Defender collection failed; ordinary PC collection remains available.' }
   Write-Host 'KESHEV: local collection finished. No HTTP upload, no firewall or security settings modified.'
 }
 do {
-  Collect-Once
+  try {
+    Collect-Once
+    Write-KeshevHeartbeat -Kind pc -Status ok -IntervalSeconds $IntervalSeconds
+  } catch {
+    try {Write-KeshevHeartbeat -Kind pc -Status failed -IntervalSeconds $IntervalSeconds -Reason 'COLLECTION_FAILED'} catch {}
+    throw
+  }
   if ($Watch) {
     Write-Host ('Next collection in ' + $IntervalSeconds + ' seconds. Ctrl+C stops the foreground collector.')
     Start-Sleep -Seconds $IntervalSeconds

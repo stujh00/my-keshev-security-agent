@@ -1,7 +1,10 @@
 import http from 'node:http';
+import {deploymentPublicStatus} from './endpoint/deployment-profile.mjs';
+import {getLocalAiStatus,analyzeLocalDefender,readAiRequest} from './endpoint/ai-local.mjs';
 import {readFile} from 'node:fs/promises';
 import {readLocalEndpointTelemetry} from './endpoint/local-telemetry.mjs';
 import {readLocalSecurityAlerts} from './endpoint/security-alerts.mjs';
+import {readAgentOperations} from './endpoint/agent-operations.mjs';
 import {readLocalInvestigations} from './endpoint/investigations.mjs';
 import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
@@ -384,6 +387,27 @@ export function createOnServer(serverOptions={}) {
       if(req.method==='GET' && url.pathname==='/api/endpoint/investigations'){
         const data=await bounded(()=>readLocalInvestigations());
         send(200,{ok:true,data});return;
+      }
+      if(req.method==='GET' && url.pathname==='/api/endpoint/operations'){
+        const data=await bounded(()=>readAgentOperations());
+        send(200,{ok:true,data});return;
+      }
+      // Phase 13: opt-in local Ollama, no cloud provider or automatic requests.
+      // Phase 13.1: read-only portability metadata, no server registration or upload.
+      if(url.pathname==='/api/endpoint/deployment' && req.method==='GET'){
+        const data=await bounded(()=>deploymentPublicStatus());
+        send(200,{ok:true,data});return;
+      }
+      if(url.pathname==='/api/endpoint/ai-status' && req.method==='GET'){
+        const data=await bounded(signal=>getLocalAiStatus(signal));
+        send(200,{ok:true,data});return;
+      }
+      if(url.pathname==='/api/endpoint/ai-analysis' && req.method==='POST'){
+        let selection;try{selection=await bounded(()=>readAiRequest(req));}
+        catch{send(400,{ok:false,error:{code:'INVALID_EVENT_SELECTION'}});return;}
+        const result=await bounded(signal=>analyzeLocalDefender(selection,signal));
+        if(!result.ok){send(result.status,{ok:false,error:{code:result.code}});return;}
+        send(200,{ok:true,data:result.data});return;
       }
       if(url.pathname.startsWith('/api/native-login/')){
         const kind=url.pathname.slice('/api/native-login/'.length);

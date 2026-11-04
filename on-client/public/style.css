@@ -437,3 +437,48 @@ body.keshev-console-v2 {
 .kv5-case-detail{padding:0 14px 14px}
 .kv5-detail-line{display:grid;grid-template-columns:minmax(100px,140px) minmax(0,1fr);gap:12px;padding:7px 0;border-bottom:1px solid #25405c;overflow-wrap:anywhere}
 .kv5-detail-line span:first-child{color:#89aac8}
+
+/* Phase 6: read-only collection status; process state explicitly unknown */
+.keshev-console-v2 .kv6-agent-operations{margin:10px 18px 20px;padding:16px;border:1px solid #304f69;border-radius:10px;background:#0d2135}
+.keshev-console-v2 .kv6-agent-operations h3{font-size:16px;margin:0 0 8px;color:#d7f4ff}
+.keshev-console-v2 .kv6-agent-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+.keshev-console-v2 .kv6-agent-card{display:flex;flex-direction:column;gap:7px;padding:12px;border:1px solid #32536b;border-radius:9px;background:#102b43;overflow-wrap:anywhere;font-size:12px;color:#b2cde1}
+.keshev-console-v2 .kv6-agent-card strong{font-size:14px;color:#e1f5ff}
+.keshev-console-v2 .kv6-agent-card small{color:#f2bc7e}
+.keshev-console-v2 .kv6-agent-actions{margin-top:10px}
+@media(max-width:800px){.keshev-console-v2 .kv6-agent-grid{grid-template-columns:1fr}}
+
+/* Phase 7: sampled process observation, not proof of continuous availability. */
+.keshev-console-v2 .kv7-process-state{display:block;margin-top:3px;color:#81e3d7;line-height:1.6}
+
+/* Phase 7.2: heartbeat is supplementary evidence, not a security status badge. */
+.kv72-heartbeat{display:block;margin-top:.45rem;line-height:1.5;opacity:.88;overflow-wrap:anywhere}
+
+/* Phase 9 · local Defender events and separate operational warnings */
+.kv9-defender,.kv9-health{min-width:0}
+.kv9-warning{color:#ffbf75!important}
+.kv9-event{border-top:1px solid rgba(255,255,255,.09);padding-top:7px;word-break:break-word}
+
+/* Phase 10 - Defender event investigation, local-only */
+.kv10-investigation{display:flex;flex-direction:column;gap:9px;margin-top:12px;padding:12px;border:1px solid rgba(120,199,223,.23);border-radius:9px;min-width:0}
+.kv10-investigation strong{color:#d6eff6}.kv10-investigation small{line-height:1.5;color:#9fc4d6}
+.kv10-controls{display:flex;gap:8px;flex-wrap:wrap}
+.kv10-controls input,.kv10-controls select{background:#0c1b2e;color:#e4f3f7;border:1px solid #35506d;border-radius:6px;padding:8px;min-width:0;flex:1}
+.kv10-event-list{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:5px}
+.kv10-event{background:#10283c;color:#d7edf7;border:1px solid #35506d;text-align:left;border-radius:6px;padding:8px;cursor:pointer;overflow-wrap:anywhere}
+.kv10-event:hover,.kv10-event:focus-visible{border-color:#63d9d1}
+.kv10-details{border-top:1px solid #35506d;padding-top:9px;color:#b6d2df;display:flex;flex-direction:column;gap:5px;overflow-wrap:anywhere}
+
+/* Phase 12: evidence-based priority notes. */
+.kv10-details{overflow-wrap:anywhere;}
+
+/* Phase 13: wider evidence pane + opt-in local AI analysis. */
+.kv9-defender{grid-column:1/-1}
+.kv10-investigation{max-width:100%;width:100%}
+.kv10-event-list{max-height:240px}
+.kv13-ai{margin-top:14px;padding:14px;border:1px solid rgba(104,217,206,.35);border-radius:9px;background:#102437;display:flex;flex-direction:column;gap:10px;min-width:0}
+.kv13-ai strong{color:#b6fbef}.kv13-ai small{color:#bdd2e3;line-height:1.5}
+.kv13-ai button{background:#155254;color:#e8ffff;border:1px solid #65d6ca;border-radius:7px;padding:10px 13px;cursor:pointer;align-self:flex-start}
+.kv13-ai button:disabled{opacity:.5;cursor:not-allowed}
+.kv13-result{white-space:pre-wrap;overflow-wrap:anywhere;color:#dfebf1;line-height:1.65;font-size:13px}
+@media(min-width:980px){.kv10-investigation .kv10-event-list{max-height:290px}.kv10-details{font-size:14px}}

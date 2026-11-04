@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param([ValidateRange(60,86400)][int]$IntervalSeconds=300,[switch]$Watch)
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'Write-KeshevHeartbeat.ps1')
 $dest=Join-Path $env:LOCALAPPDATA 'KeshevEndpoint\measurements'
 if(-not(Test-Path -LiteralPath $dest -PathType Container)){New-Item -ItemType Directory -Path $dest -Force | Out-Null}
 function Collect-Once {
@@ -48,6 +49,7 @@ function Collect-Once {
   }finally{if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Force}}
   Write-Host ('KESHEV Security collection '+$out.status+'; '+$out.events.Count+' matching events; '+$out.collectedAt+'; '+$target)
   if($out.status -ne 'ok'){Write-Host ('Reason: '+$out.reason)}
+  Write-KeshevHeartbeat -Kind security -Status $(if($out.status -eq 'ok'){'ok'}else{'unavailable'}) -IntervalSeconds $IntervalSeconds -Reason ([string]$out.reason)
 }
 do{
  Collect-Once
