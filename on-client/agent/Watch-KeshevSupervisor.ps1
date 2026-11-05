@@ -1,9 +1,30 @@
-# KESHEV Phase 7 process observer. Read only. No elevation, no service install, no agent control.
+﻿# KESHEV Phase 7 process observer. Read only. No elevation, no service install, no agent control.
 [CmdletBinding()]
 param([ValidateRange(30,3600)][int]$IntervalSeconds=60,[switch]$Once)
 $ErrorActionPreference='Stop'
 $root=Join-Path $env:LOCALAPPDATA 'KeshevEndpoint\measurements'
 if (-not (Test-Path -LiteralPath $root -PathType Container)) { New-Item -ItemType Directory -Force -Path $root | Out-Null }
+# A privileged collector may hide its command line from the ordinary supervisor.
+# Validate its own reported PID against Windows process identity AND creation time.
+# Do not equate a heartbeat or a JSON file alone with a running process.
+function Test-SecurityWatchIdentity($processes) {
+  $marker=Join-Path $root 'security-watch-process.json'
+  try {
+    $file=Get-Item -LiteralPath $marker -ErrorAction Stop
+    if ($file.Length -lt 1 -or $file.Length -gt 4096) { return $false }
+    $raw=Get-Content -LiteralPath $marker -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    if ($raw.schemaVersion -ne 1 -or $raw.source -ne 'keshev_security_watch_process') { return $false }
+    $candidatePid=0
+    if (-not [int]::TryParse([string]$raw.pid,[ref]$candidatePid) -or $candidatePid -le 0) { return $false }
+    $started=[datetimeoffset]::MinValue
+    if (-not [datetimeoffset]::TryParse([string]$raw.startedAtUtc,[ref]$started) -or $started.Offset -ne [timespan]::Zero) { return $false }
+    $found=@($processes | Where-Object { [int]$_.ProcessId -eq $candidatePid })
+    if ($found.Count -ne 1) { return $false }
+    $processStarted=([datetime]$found[0].CreationDate).ToUniversalTime()
+    $difference=[math]::Abs(($processStarted - $started.UtcDateTime).TotalSeconds)
+    return ($difference -le 2)
+  } catch { return $false }
+}
 function Observe-Once {
   $stamp=(Get-Date).ToString('o')
   $items=@{pc=@{state='unknown';count=0};security=@{state='unknown';count=0}}
@@ -14,9 +35,10 @@ function Observe-Once {
     $hidden=@($procs | Where-Object { [string]::IsNullOrWhiteSpace($_.CommandLine) })
     # Recognize both the collector worker and its foreground wrapper.
     $patterns=@{pc='(?i)(?:[\\/]|^|\s)(?:Run-KeshevEndpoint|Start-KeshevAutoCollect)\.ps1(?:\s|"|\x27|$)';security='(?i)(?:[\\/]|^|\s)Collect-KeshevSecurity\.ps1(?:\s|"|\x27|$)'}
+    $securityIdentityObserved=Test-SecurityWatchIdentity $procs
     foreach($key in @('pc','security')) {
       $match=@($readable | Where-Object {$_.CommandLine -match $patterns[$key]})
-      if($match.Count -gt 0){$items[$key]=@{state='observed';count=$match.Count}}
+      if($match.Count -gt 0 -or ($key -eq 'security' -and $securityIdentityObserved)){$items[$key]=@{state='observed';count=[math]::Max(1,$match.Count)}}
       elseif($hidden.Count -gt 0){$items[$key]=@{state='unknown';count=0}}
       else{$items[$key]=@{state='not_observed';count=0}}
     }

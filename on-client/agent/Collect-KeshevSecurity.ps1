@@ -1,10 +1,38 @@
-# KESHEV Phase 4 - Windows Security log metadata only. No configuration changes.
+﻿# KESHEV Phase 4 - Windows Security log metadata only. No configuration changes.
 [CmdletBinding()]
 param([ValidateRange(60,86400)][int]$IntervalSeconds=300,[switch]$Watch)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'Write-KeshevHeartbeat.ps1')
 $dest=Join-Path $env:LOCALAPPDATA 'KeshevEndpoint\measurements'
 if(-not(Test-Path -LiteralPath $dest -PathType Container)){New-Item -ItemType Directory -Path $dest -Force | Out-Null}
+# Watch-mode process identity is evidence of process existence only, not collection success.
+# Do not publish identity from a one-off or non-elevated collection run.
+function Write-SecurityProcessIdentity {
+  if (-not $Watch) { return }
+  try {
+    $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal=New-Object Security.Principal.WindowsPrincipal($identity)
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { return }
+    $current=Get-Process -Id $PID -ErrorAction Stop
+    $record=[ordered]@{
+      schemaVersion=1
+      source='keshev_security_watch_process'
+      pid=[int]$PID
+      startedAtUtc=$current.StartTime.ToUniversalTime().ToString('o')
+      writtenAtUtc=(Get-Date).ToUniversalTime().ToString('o')
+    }
+    $text=ConvertTo-Json -InputObject $record -Compress
+    $tmp=Join-Path $dest ('.security-process.'+[guid]::NewGuid().ToString('N')+'.tmp')
+    try {
+      [System.IO.File]::WriteAllText($tmp,$text,(New-Object System.Text.UTF8Encoding($false)))
+      Move-Item -LiteralPath $tmp -Destination (Join-Path $dest 'security-watch-process.json') -Force -ErrorAction Stop
+    } finally {
+      if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    }
+  } catch {
+    Write-Warning 'KESHEV Security process identity could not be recorded. Collection will continue.'
+  }
+}
 function Collect-Once {
   $now=Get-Date
   $out=[ordered]@{schemaVersion=1;evidence='actual_windows_security_query';sampleData=$false;collectedAt=$now.ToString('yyyy-MM-ddTHH:mm:sszzz');status='unavailable';reason=$null;windowHours=24;limited=$false;events=@()}
@@ -52,6 +80,7 @@ function Collect-Once {
   Write-KeshevHeartbeat -Kind security -Status $(if($out.status -eq 'ok'){'ok'}else{'unavailable'}) -IntervalSeconds $IntervalSeconds -Reason ([string]$out.reason)
 }
 do{
+ Write-SecurityProcessIdentity
  Collect-Once
  if($Watch){Write-Host ('Next Security collection in '+$IntervalSeconds+' seconds. Ctrl+C stops.');Start-Sleep -Seconds $IntervalSeconds}
 }while($Watch)
