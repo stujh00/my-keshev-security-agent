@@ -2,7 +2,8 @@
 # Read-only system measurements. Never changes the KESHEV repository.
 [CmdletBinding()]
 param(
-    [string]$OutputDirectory = (Join-Path $env:LOCALAPPDATA 'KeshevEndpoint\measurements')
+    [string]$OutputDirectory = (Join-Path $env:LOCALAPPDATA 'KeshevEndpoint\measurements'),
+    [switch]$LatestOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -47,6 +48,7 @@ try {
     } else { $results.diskC.reason = 'C: disk data not returned by Windows' }
 } catch { $results.diskC.reason = 'Windows disk query failed' }
 
+if (-not $LatestOnly) {
 Write-Host '===== KESHEV PC actual measurements ====='
 Write-Host ('Measured at: ' + $results.collectedAt)
 Write-Host 'Source: actual Windows CIM query (not demo/sample)'
@@ -58,6 +60,7 @@ if ($results.diskC.status -eq 'ok') {
     Write-Host ('C: disk free: {0:N1} GB ({1:N1} %)' -f $results.diskC.freeGB, $results.diskC.freePercent)
 } else { Write-Host ('C: disk free: unavailable ({0})' -f $results.diskC.reason) }
 
+}
 # Write an evidence file outside the Git repository. Never overwrite an existing result.
 if (-not (Test-Path -LiteralPath $OutputDirectory -PathType Container)) {
     throw ('Output directory not found: ' + $OutputDirectory)
@@ -65,6 +68,18 @@ if (-not (Test-Path -LiteralPath $OutputDirectory -PathType Container)) {
 $name = 'keshev-pc-actual-{0}-{1}.json' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), [Guid]::NewGuid().ToString('N').Substring(0,8)
 $path = Join-Path $OutputDirectory $name
 $json = $results | ConvertTo-Json -Depth 6
+# KESHEV_PHASE151_FAST_PC: frequent, atomic latest-only measurements; do not create 15-sec archive files.
+if ($LatestOnly) {
+    $latest = Join-Path $OutputDirectory 'latest-pc.json'
+    $tmp = Join-Path $OutputDirectory ('.latest-pc.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        [IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath $tmp -Destination $latest -Force -ErrorAction Stop
+    } finally {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    }
+    return
+}
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $bytes = $utf8.GetBytes($json)
 $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write)

@@ -1631,8 +1631,8 @@ else keshevInitConsole();
       }catch{if(thisRun===runId){summary.replaceChildren();stateNode.textContent='측정값을 조회하지 못했습니다. 서버 재시작 및 Agent 수집 여부를 확인하세요.';}return;}
       if(thisRun!==runId)return;
       const pc=result.pc,cn=result.connection;
-      const pcReady = pc.status === 'ok';
-      const pcFresh = pcReady ? fmtTime(pc.collectedAt) : '미수집';
+      const pcReady = pc.status === 'ok' && pc.freshness === 'recent';
+      const pcFresh = pcReady ? fmtTime(pc.collectedAt) : (pc.status === 'ok' ? '오래된 측정값 · 새 수집 대기' : '미수집');
       const diskUsed = pcReady && typeof pc.diskFreePercent === 'number'
         ? Math.max(0, Math.min(100, 100 - pc.diskFreePercent)) : null;
       summary.replaceChildren(
@@ -1659,14 +1659,14 @@ else keshevInitConsole();
       }
     }
     footer.append(button('저장된 측정값 다시 읽기',()=>update()));
-    const scheduleInfo=node('p','kv2-endpoint-note kv3-poll-hint','화면은 60초마다 저장된 측정값을 다시 읽습니다. Windows 자동 수집은 별도 Agent 실행이 필요합니다.');
+    const scheduleInfo=node('p','kv2-endpoint-note kv3-poll-hint','화면은 15초마다 저장된 측정값을 다시 읽습니다. 일반 PC 측정은 Agent 실행 중 약 15초 간격, Defender·네트워크는 5분 간격으로 갱신됩니다.');
     footer.append(scheduleInfo);
     update();
     // Poll while this view is attached. Stop the interval after navigation.
     const polling=setInterval(()=>{
       if(!document.contains(area)){clearInterval(polling);return;}
       if(document.visibilityState==='visible')update();
-    },60000);
+    },15000); // KESHEV_PHASE151_FAST_PC
   }
 
   // Phase 6: snapshot health is not process liveness, no start/stop privileges.

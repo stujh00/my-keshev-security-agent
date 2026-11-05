@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param(
   [ValidateRange(60,86400)][int]$IntervalSeconds = 300,
+  [ValidateRange(10,300)][int]$ResourceIntervalSeconds = 15,
   [switch]$Watch
 )
 $ErrorActionPreference = 'Stop'
@@ -41,16 +42,35 @@ function Collect-Once {
   } catch { Write-Warning 'KESHEV Defender collection failed; ordinary PC collection remains available.' }
   Write-Host 'KESHEV: local collection finished. No HTTP upload, no firewall or security settings modified.'
 }
-do {
+# KESHEV_PHASE151_FAST_PC: preserve slow Defender/network cycle; refresh PC gauges every 15 seconds.
+if (-not $Watch) {
   try {
     Collect-Once
     Write-KeshevHeartbeat -Kind pc -Status ok -IntervalSeconds $IntervalSeconds
   } catch {
-    try {Write-KeshevHeartbeat -Kind pc -Status failed -IntervalSeconds $IntervalSeconds -Reason 'COLLECTION_FAILED'} catch {}
+    try { Write-KeshevHeartbeat -Kind pc -Status failed -IntervalSeconds $IntervalSeconds -Reason 'COLLECTION_FAILED' } catch {}
     throw
   }
-  if ($Watch) {
-    Write-Host ('Next collection in ' + $IntervalSeconds + ' seconds. Ctrl+C stops the foreground collector.')
-    Start-Sleep -Seconds $IntervalSeconds
+  return
+}
+$nextFull = Get-Date
+while ($true) {
+  $now = Get-Date
+  if ($now -ge $nextFull) {
+    try {
+      Collect-Once
+      Write-KeshevHeartbeat -Kind pc -Status ok -IntervalSeconds $IntervalSeconds
+    } catch {
+      try { Write-KeshevHeartbeat -Kind pc -Status failed -IntervalSeconds $IntervalSeconds -Reason 'COLLECTION_FAILED' } catch {}
+      Write-Warning 'Full collection failed; next cycle will retry without changing security settings.'
+    }
+    $nextFull = (Get-Date).AddSeconds($IntervalSeconds)
+  } else {
+    try {
+      & (Join-Path $PSScriptRoot 'Measure-PC.ps1') -OutputDirectory $measureDir -LatestOnly | Out-Null
+    } catch {
+      Write-Warning 'Fast PC refresh failed; last valid snapshot remains available.'
+    }
   }
-} while ($Watch)
+  Start-Sleep -Seconds $ResourceIntervalSeconds
+}
