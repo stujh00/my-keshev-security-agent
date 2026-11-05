@@ -1,4 +1,5 @@
 import http from 'node:http';
+import net from 'node:net';
 import {deploymentPublicStatus} from './endpoint/deployment-profile.mjs';
 import {getLocalAiStatus,analyzeLocalDefender,readAiRequest} from './endpoint/ai-local.mjs';
 import {readFile} from 'node:fs/promises';
@@ -27,6 +28,24 @@ import {nativeOwn,nativePublicError} from './connection/native-login.mjs';
 import {createNativeHostContext,captureNativeHostConfiguration,readNativeHostConfiguration,openNativeHostOperation,readNativeHostOperation,assertNativeHostOperation,createNativeOperationVault,closeNativeHostOperation} from './connection/native-context.mjs';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
+// Privilege action bridge works only under the authenticated KESHEV integrated launcher.
+// It never takes a program path, command or arguments from a browser request.
+function launchSecurityCollector(){
+ const port=Number(process.env.KESHEV_LAUNCHER_CONTROL_PORT);
+ const token=process.env.KESHEV_LAUNCHER_CONTROL_TOKEN;
+ if(!Number.isInteger(port)||port<=0||port>65535||typeof token!=='string'||!/^[0-9a-f-]{36}$/i.test(token))
+   return Promise.resolve({ok:false,code:'LAUNCHER_UNAVAILABLE'});
+ return new Promise(resolve=>{
+  const socket=net.createConnection({host:'127.0.0.1',port});let buffer='',done=false;
+  const finish=data=>{if(done)return;done=true;socket.destroy();resolve(data)};
+  socket.setTimeout(108000,()=>finish({ok:false,code:'LAUNCHER_TIMEOUT'}));
+  socket.on('error',()=>finish({ok:false,code:'LAUNCHER_UNAVAILABLE'}));
+  socket.on('connect',()=>socket.write(JSON.stringify({token,kind:'security-start'})+'\n'));
+  socket.on('data',chunk=>{buffer+=String(chunk);if(buffer.length>4096){finish({ok:false,code:'LAUNCHER_BAD_RESPONSE'});return;}
+   if(buffer.includes('\n')){try{const result=JSON.parse(buffer.trim());finish(result?.ok===true?{ok:true,code:'UAC_LAUNCHED_NOT_VERIFIED'}:{ok:false,code:String(result?.code||'ELEVATION_FAILED').slice(0,64)})}catch{finish({ok:false,code:'LAUNCHER_BAD_RESPONSE'})}}});
+  socket.on('end',()=>finish({ok:false,code:'LAUNCHER_DISCONNECTED'}));
+ });
+}
 const id=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(value);
 const record=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const text=value=>typeof value==='string'&&value.length<=2000;
@@ -331,7 +350,7 @@ export function createOnServer(serverOptions={}) {
     const disconnect=()=>lifetime.abort();
     res.once('close',disconnect);req.once('aborted',disconnect);
     const aiDeadlineRoute=req.method==='POST'&&['/api/ai/check','/api/ai/explain','/api/learner-support/gpt','/api/endpoint/ai-analysis'].includes(req.url);
-    const requestLimit=aiDeadlineRoute?aiRequestTimeoutMs:requestTimeoutMs;
+    const requestLimit=req.method==='POST'&&req.url==='/api/endpoint/security-start'?120000:(aiDeadlineRoute?aiRequestTimeoutMs:requestTimeoutMs);
     const requestTimer=setTimeout(()=>{requestTimedOut=true;lifetime.abort();},requestLimit);
     if(aiDeadlineRoute&&Number.isSafeInteger(aiTimeoutMs)&&aiTimeoutMs>0&&aiTimeoutMs<=420000){
       const routeLimit=Math.min(aiTimeoutMs,requestLimit);
@@ -391,6 +410,15 @@ export function createOnServer(serverOptions={}) {
       if(req.method==='GET' && url.pathname==='/api/endpoint/operations'){
         const data=await bounded(()=>readAgentOperations());
         send(200,{ok:true,data});return;
+      }
+      // Phase 15.3: single fixed, explicit user-click privilege request. No remote commands.
+      if(req.method==='POST' && url.pathname==='/api/endpoint/security-start'){
+        if(req.headers['x-keshev-action']!=='security-start-v1' ||
+           (req.headers['content-length']!==undefined && req.headers['content-length']!=='0') ||
+           req.headers['transfer-encoding']!==undefined)
+          throw engineError('REQUEST_INVALID','잘못된 Security 수집 요청입니다.',400);
+        const result=await bounded(()=>launchSecurityCollector());
+        send(result.ok?202:409,{ok:result.ok,data:{code:result.code}});return;
       }
       // Phase 13: opt-in local Ollama, no cloud provider or automatic requests.
       // Phase 13.1: read-only portability metadata, no server registration or upload.

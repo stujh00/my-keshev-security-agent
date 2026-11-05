@@ -1886,6 +1886,30 @@ else keshevInitConsole();
           card.append(node('small','',`수집 기록 상태: ${value.reason?' · '+value.reason:'최근성만 표시'}`));
           addSupervisorDetail(card,key==='security'?'security':'pc',d.supervisor);
           addHeartbeatDetail(card,key,d.heartbeats);
+          if(key==='security'){
+            const launch=button('관리자 권한으로 Security 수집 시작',async()=>{
+              if(!window.confirm('Windows Security 감사 이벤트 수집을 시작하시겠습니까?\nWindows에서 관리자 권한 승인(UAC)을 요청합니다.'))return;
+              launch.disabled=true;launch.textContent='Windows 관리자 승인 대기 중...';
+              try{
+                const res=await fetch('/api/endpoint/security-start',{method:'POST',credentials:'same-origin',headers:{'X-Keshev-Action':'security-start-v1'}});
+                const answer=await res.json();const code=answer?.data?.code||'UNKNOWN';
+                if(res.ok&&answer?.ok===true)alert('Windows 권한 요청을 전달했습니다. 수집 시작 여부는 잠시 후 상태 갱신으로 확인하세요.');
+                else alert(({
+                  LAUNCHER_UNAVAILABLE:'케셰브 통합 실행기로 실행해 주세요.',
+                  ALREADY_RUNNING:'Security 수집기가 이미 실행 중입니다.',
+                  PROCESS_UNVERIFIABLE:'기존 Security 수집기의 실행 여부를 확인할 수 없어 중복 실행을 막았습니다.',
+                  ELEVATION_IN_PROGRESS:'관리자 승인 요청이 이미 진행 중입니다.',
+                  UAC_DECLINED:'관리자 승인이 취소되었습니다. 일반 수집은 계속 동작합니다.',
+                  ELEVATION_TIMEOUT:'관리자 승인 대기 시간이 초과되었습니다.',
+                })[code]||'관리자 수집 요청을 완료하지 못했습니다: '+code);
+              }catch{alert('로컬 서버와 관리자 수집 요청 연결을 확인해 주세요.');}
+              finally{launch.disabled=false;launch.textContent='관리자 권한으로 Security 수집 시작';update();}
+            });
+            if(d.supervisor?.state==='recent'&&d.supervisor.collectors?.security?.state==='observed'){
+              launch.disabled=true;launch.textContent='Security 수집기 실행 관측됨';
+            }
+            card.append(launch);
+          }
           body.append(card);
         }
         appendPhase9Cards(body,d);
