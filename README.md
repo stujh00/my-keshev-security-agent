@@ -1,4 +1,4 @@
-# KESHEV — Windows 설치 및 다른 PC 실행 안내
+﻿# KESHEV — Windows 설치 및 다른 PC 실행 안내
 
 케셰브(KESHEV)는 Windows PC의 로컬 보안 정보를 수집해 웹 대시보드(`http://127.0.0.1:5190/`)에서 표시하는 프로젝트입니다. Windows Defender 이벤트에 대한 로컬 AI 분석은 선택 기능입니다.
 
@@ -90,3 +90,78 @@ CPU 전용 실행기는 포트 `11434`에서 다른 Ollama 서버가 실행 중�
 추가 설치기 정보: [`on-client/installer/README.md`](on-client/installer/README.md)
 
 **참고:** 이 설치 안내는 최종 제출 이후 작성됐습니다. 문서 추가 커밋이 생기더라도 위 40자리 **기존 제출 커밋은 그대로 보존**됩니다.
+
+---
+
+<!-- KESHEV-WINDOWS-INSTALL-GUIDE-START -->
+
+## Windows 설치 화면 및 프로그램별 역할
+
+최신 설치 파일은 [KESHEV v1.0.1-preview Releases](https://github.com/stujh00/my-keshev-security-agent/releases/tag/v1.0.1-preview)에서 **Assets → KESHEV-Setup.exe**를 다운로드하세요. 소스코드를 직접 빌드할 필요가 없습니다.
+
+### 1. SmartScreen 경고
+
+![Windows Defender SmartScreen 경고](images/01-smartscreen.png)
+
+직접 제작한 미서명 프로그램은 Windows SmartScreen에서 **알 수 없는 게시자** 경고를 표시할 수 있습니다. 이 경고 자체가 악성코드 판정은 아닙니다. 다운로드 출처와 SHA-256을 확인하고 PC 또는 조직의 보안 정책이 허용할 때에만 실행하세요. 보안 정책은 우회하지 마세요.
+
+배포 EXE SHA-256: `11FA2A8ECDE72DBEAECF923B950A45A7F4B0012794ED0108D43586021B24B746`
+
+```powershell
+Get-FileHash "$env:USERPROFILE\Downloads\KESHEV-Setup.exe" -Algorithm SHA256
+```
+
+### 2. 설치 경로 설정
+
+![설치 경로 선택](images/02-install-location.png)
+
+기본 설치 경로는 `%LOCALAPPDATA%\Programs\KESHEV`입니다. 예: `C:\Users\User\AppData\Local\Programs\KESHEV`. 프로그램 코드와 번들 Node.js 런타임, 실행 스크립트 및 제거 프로그램이 저장됩니다. 특별한 이유가 없다면 기본 경로로 **Next**를 누르세요.
+
+### 3. 추가 작업 선택
+
+![추가 설치 옵션](images/03-install-options.png)
+
+| 설치 옵션 | 의미 |
+| --- | --- |
+| **Create a desktop shortcut** | 바탕화면에 일반 모드 **KESHEV** 실행 바로가기를 만듭니다. |
+| **Create CPU-only local AI shortcut (requires Ollama)** | 시작 메뉴에 **KESHEV - CPU Local AI**를 추가합니다. AI용 Ollama가 필요합니다. |
+| **Prepare Ollama + gemma3:1b after installing KESHEV** | 새로 설치하는 PC에서 Ollama와 `gemma3:1b` 모델 설치·확인을 돕는 스크립트를 실행합니다. 인터넷이 필요하며, 선택 기능입니다. |
+
+### 4. 설치 후 시작 메뉴 프로그램의 역할
+
+![KESHEV 시작 메뉴 바로가기 3종](images/04-start-menu.png)
+
+| 시작 메뉴/바탕화면 항목 | 무엇을 하는 프로그램인가? |
+| --- | --- |
+| **KESHEV** | PC 보안 정보 수집과 대시보드 실행. 브라우저에서 `http://127.0.0.1:5190/` 접속 |
+| **KESHEV - CPU Local AI** | Ollama 기반 로컬 AI를 CPU 전용으로 사용하도록 준비하고 KESHEV 실행. 설치 시 해당 옵션 선택 시 생성 |
+| **Uninstall KESHEV** | 설치된 KESHEV Endpoint Security 프로그램을 제거하는 공식 제거 프로그램 실행 |
+| **KESHEV** (바탕화면) | 시작 메뉴의 KESHEV와 동일한 일반 실행 바로가기. 설치 시 바탕화면 옵션 선택 시 생성 |
+
+**종료:** 실행 중인 콘솔에서 `Ctrl+C` 또는 설치 폴더의 `Stop-Keshev.cmd`를 사용합니다. CPU AI 모드용 중지 스크립트는 `on-client\tools\Stop-Keshev-CPU-AI.cmd`입니다. 일반 모드와 CPU AI 모드를 동시에 실행하면 포트 충돌이 발생할 수 있습니다.
+
+### 5. 설치 후 저장 위치
+
+| 경로 | 저장되는 것 | 삭제 방법 |
+| --- | --- | --- |
+| `%LOCALAPPDATA%\Programs\KESHEV` | 설치 프로그램 본체 및 번들 실행 환경 | Windows 설정 → 앱 → 설치된 앱 → **KESHEV Endpoint Security → 제거** |
+| `%LOCALAPPDATA%\KeshevEndpoint` | PC/보안 측정 기록 및 `ai-local.json` 등 설정 | 공식 제거 후에도 남을 수 있음. 데이터를 영구 삭제하려면 필요한 내용을 백업한 후 해당 폴더를 수동 삭제 |
+| `%APPDATA%\Microsoft\Windows\Start Menu\Programs\KESHEV` | 시작 메뉴 바로가기 | 공식 제거 프로그램 실행 시 정리되는 항목 |
+| `%TEMP%\KESHEV-Setup-Build\...` | **직접 소스를 빌드한 PC**의 임시 빌드 결과 | 필요하지 않다면 빌드 종료 후 수동 삭제 가능 |
+| `Desktop\KESHEV-Source` | **직접 git clone을 한 경우**의 소스코드 | 소스 수정·빌드가 필요 없다면 수동 삭제 가능 |
+| `Downloads\KESHEV-Setup.exe` | 다운로드한 설치 EXE | 설치 완료 후 수동 삭제 가능 |
+
+GitHub Releases에서 EXE만 설치했다면 `KESHEV-Source`나 `KESHEV-Setup-Build`가 자동으로 생기지 않습니다. Ollama는 KESHEV와 별개이므로 KESHEV 제거 시 자동 삭제되지 않으며, 모델 저장 경로는 Ollama 설정에 따라 다를 수 있습니다.
+
+### 6. 완전 삭제 및 재설치
+
+1. 실행 중인 KESHEV를 `Ctrl+C` 또는 `Stop-Keshev.cmd`로 종료합니다.
+2. **Windows 설정 → 앱 → 설치된 앱 → KESHEV Endpoint Security → 제거**를 사용합니다. 설치 폴더를 먼저 강제로 지우지 마세요.
+3. 보안 수집 이력 및 설정까지 지우려면 필요 자료를 백업한 후 `%LOCALAPPDATA%\KeshevEndpoint`를 별도로 삭제합니다. 이 파일은 복구하기 어렵습니다.
+4. 소스를 직접 빌드했을 때만 존재하는 `KESHEV-Source`와 `%TEMP%\KESHEV-Setup-Build`도 필요에 따라 삭제합니다.
+5. 최신 설치를 위해 GitHub Releases에서 EXE를 다시 다운로드합니다. Git, Node.js, Inno Setup 설치는 필요하지 않습니다. Ollama 로컬 AI는 별도 준비가 필요합니다.
+
+**검증 범위:** Windows 개발 PC에서의 설치·실행은 확인했으나, 완전히 다른 Windows PC에서의 최초 설치 및 모든 보안 기능의 호환성은 아직 별도 검증이 필요합니다. 중앙 ZTNA 서버는 자동 연결되지 않습니다.
+
+<!-- KESHEV-WINDOWS-INSTALL-GUIDE-END -->
+
