@@ -131,8 +131,29 @@ $info.WorkingDirectory = $root
 $info.UseShellExecute = $false
 # Windows 경로에는 큰따옴표가 들어갈 수 없으므로 경로를 큰따옴표로 감싸 한 인자로 넘깁니다(공백·한글 경로 포함).
 $info.Arguments = '"' + $server + '"' + $(if ($Demo) { ' --demo' } else { '' }) + $nativeArgument + $sdpArgument
+# Only the authenticated KESHEV launcher may pass these two control values.
+# Preserve the existing stripping of ALL other secret environment variables.
+$controlPort = [string][Environment]::GetEnvironmentVariable('KESHEV_LAUNCHER_CONTROL_PORT')
+$controlToken = [string][Environment]::GetEnvironmentVariable('KESHEV_LAUNCHER_CONTROL_TOKEN')
+$controlPortNumber = 0
+$hasControlPort = -not [string]::IsNullOrWhiteSpace($controlPort)
+$hasControlToken = -not [string]::IsNullOrWhiteSpace($controlToken)
+if ($hasControlPort -xor $hasControlToken) {
+  Stop-With 'KESHEV launcher control settings are incomplete. Stop and restart through the installed KESHEV launcher.'
+}
+if ($hasControlPort) {
+  if (-not [int]::TryParse($controlPort, [ref]$controlPortNumber) -or
+      $controlPortNumber -lt 1024 -or $controlPortNumber -gt 65535 -or
+      $controlToken -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+    Stop-With 'Invalid KESHEV launcher control settings.'
+  }
+}
 $secret = '(?i)(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API_?KEY|PRIVATE_?KEY|ACCESS_?KEY|^ON_AI_|^OPENAI|^ANTHROPIC|^SUPABASE)'
 foreach ($name in @($info.EnvironmentVariables.Keys)) { if ($name -match $secret) { $info.EnvironmentVariables.Remove($name) } }
+if ($hasControlPort) {
+  $info.EnvironmentVariables['KESHEV_LAUNCHER_CONTROL_PORT'] = [string]$controlPortNumber
+  $info.EnvironmentVariables['KESHEV_LAUNCHER_CONTROL_TOKEN'] = $controlToken
+}
 $info.EnvironmentVariables['ON_PORT'] = [string]$Port
 if ($Background) {
   $info.CreateNoWindow = $true
