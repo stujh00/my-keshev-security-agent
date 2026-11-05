@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validSession,procMatch} from './Launch-Keshev.mjs';
+import {validSession,procMatch,securityElevationGate} from './Launch-Keshev.mjs';
 test('validates session format and rejects malformed control requests',()=>{
  const s={version:1,port:31337,pid:24,token:'12345678-1234-1234-1234-123456789abc'};
  assert.equal(validSession(s),true);
@@ -14,4 +14,11 @@ test('recognizes true PC and supervisor script paths',()=>{
 test('does not confuse security worker with managed PC and supervisor',()=>{
  assert.equal(procMatch('powershell -File C:\\test\\Collect-KeshevSecurity.ps1 -Watch'),false);
  assert.equal(procMatch('notanagent Run-KeshevEndpoint.ps1.bak'),false);
+});
+
+test('elevation gate blocks concurrent and recently accepted UAC requests',()=>{
+ assert.equal(securityElevationGate({inFlight:true,now:100,pendingUntil:0}),'ELEVATION_IN_PROGRESS');
+ assert.equal(securityElevationGate({inFlight:false,now:100,pendingUntil:200}),'ELEVATION_PENDING_VERIFICATION');
+ assert.equal(securityElevationGate({inFlight:false,now:201,pendingUntil:200}),null);
+ assert.equal(securityElevationGate({inFlight:false,now:999,pendingUntil:Infinity}),'ELEVATION_PENDING_VERIFICATION');
 });

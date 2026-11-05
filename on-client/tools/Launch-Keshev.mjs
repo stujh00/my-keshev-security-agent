@@ -25,6 +25,14 @@ const specs=[
 const securityFile=path.join(agent,'Collect-KeshevSecurity.ps1');
 
 let securityRequestInFlight=false;
+// Hold off repeat requests while Windows and Supervisor discover the newly elevated process.
+// An elevation timeout is ambiguous: do not try again automatically in this launcher session.
+let securityLaunchPendingUntil=0;
+export function securityElevationGate({inFlight=false,now=Date.now(),pendingUntil=0}={}){
+ if(inFlight)return 'ELEVATION_IN_PROGRESS';
+ if(now<pendingUntil)return 'ELEVATION_PENDING_VERIFICATION';
+ return null;
+}
 // Fixed allowlisted elevation target. Never accept process names, script paths or arguments from HTTP.
 function securityElevationCommand(){
  const encodedPath=Buffer.from(securityFile,'utf8').toString('base64');
@@ -39,13 +47,18 @@ try {
   Write-Host 'KESHEV_ELEVATION_REQUEST_ACCEPTED'
   exit 0
 } catch {
-  if($_.Exception.Message -match 'canceled by the user|cancelled by the user|operation was canceled|operation was cancelled|1223'){Write-Host 'KESHEV_UAC_CANCELLED'}
+  $nativeCode=0
+  try {$nativeCode=[int]$_.Exception.NativeErrorCode} catch {}
+  $win32Code=0
+  try {$win32Code=([int64]$_.Exception.HResult -band 65535)} catch {}
+  if($nativeCode -eq 1223 -or $win32Code -eq 1223 -or $_.Exception.Message -match 'canceled by the user|cancelled by the user|operation was canceled|operation was cancelled|1223'){Write-Host 'KESHEV_UAC_CANCELLED'}
   else {Write-Host 'KESHEV_ELEVATION_FAILED'}
   exit 1
 }`;
 }
 async function requestSecurityElevation(){
- if(securityRequestInFlight)return {ok:false,code:'ELEVATION_IN_PROGRESS'};
+ const gate=securityElevationGate({inFlight:securityRequestInFlight,pendingUntil:securityLaunchPendingUntil});
+ if(gate)return {ok:false,code:gate};
  if(!fs.existsSync(securityFile))return {ok:false,code:'SECURITY_COLLECTOR_MISSING'};
  const scan=scanSecurityProcesses();
  if(scan.state!=='not_observed')return {ok:false,code:scan.state==='observed'?'ALREADY_RUNNING':'PROCESS_UNVERIFIABLE'};
@@ -53,7 +66,14 @@ async function requestSecurityElevation(){
  try{
    return await new Promise(resolve=>{
      let stdout='',stderr='',settled=false;
-     const finish=out=>{if(settled)return;settled=true;clearTimeout(timer);securityRequestInFlight=false;resolve(out)};
+     const finish=out=>{
+       if(settled)return;
+       settled=true;clearTimeout(timer);
+       if(out.ok)securityLaunchPendingUntil=Date.now()+120000;
+       // Timeout cannot prove the user declined; prevent further elevation in this session.
+       if(out.code==='ELEVATION_TIMEOUT')securityLaunchPendingUntil=Number.POSITIVE_INFINITY;
+       securityRequestInFlight=false;resolve(out);
+     };
      const command=securityElevationCommand();
      const encoded=Buffer.from(command,'utf16le').toString('base64');
      const child=spawn(powershell,['-NoProfile','-NonInteractive','-EncodedCommand',encoded],
